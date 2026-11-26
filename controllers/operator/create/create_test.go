@@ -28,7 +28,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -50,11 +50,17 @@ func init() {
 // reconcileDatabase follows the controller order: read the credential, build the StatefulSet, then apply it.
 func reconcileDatabase(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, options func(mdbv1.MongoDB) construct.DatabaseStatefulSetOptions) (*appsv1.StatefulSet, error) {
 	opts := options(mdb)
-	if err := SetAgentCredential(ctx, secretClient, mdb.Namespace, &opts); err != nil {
+	credentialHash, err := AgentCredentialHash(ctx, secretClient, mdb.Namespace, opts.AgentSettingsSource(), opts.PodVars.BaseURL, opts.PodVars.ProjectID)
+	if err != nil {
 		return nil, err
 	}
+	opts.AgentCredentialHash = credentialHash
 	sts := construct.DatabaseStatefulSetFromOptions(mdb, opts, zap.S())
 	return DatabaseInKubernetes(ctx, client, secretClient, mdb, sts, opts, zap.S())
+}
+
+func credentialSecret(namespace, name, key, value string) *corev1.Secret {
+	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Data: map[string][]byte{key: []byte(value)}}
 }
 
 func TestDatabaseAgentSettingsDelivery(t *testing.T) {
@@ -139,7 +145,7 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 				assert.Equal(t, &fileMode, item.Mode)
 				assert.Equal(t, "customer-api-key", string(keySecret.Data[item.Key]), "projected key must exist in generated credential Secret")
 			}
-			assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created))
+			assert.Equal(t, keySecret.Name, construct.MountedAgentAPIKeySecretName(*created))
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
 			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
@@ -235,7 +241,7 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 	})
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 	keySecret := corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID), Namespace: sts.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: mdbv1.AgentAPIKeySecretName(options(*mdb).PodVars.ProjectID), Namespace: sts.Namespace},
 		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
 	}
 	require.NotEmpty(t, keySecret.Name)
@@ -245,7 +251,7 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 
 	require.NoError(t, err)
 	assert.Len(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
-	assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
+	assert.Equal(t, keySecret.Name, construct.MountedAgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
 }
 
 func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
@@ -325,6 +331,104 @@ func TestDatabaseAgentSettingsCredentialSources(t *testing.T) {
 	}
 }
 
+func TestAgentCredentialHashFromAgentSettingsSource(t *testing.T) {
+	projectID := "abcd-group"
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	customerKeyVolume := corev1.Volume{
+		Name: construct.AgentAPIKeyVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: "customer-credential",
+			Items:      []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey}},
+		}},
+	}
+
+	tests := map[string]struct {
+		parameters    mdbv1.StartupParameters
+		baseURL       string
+		projectID     string
+		volume        *corev1.Volume
+		keySecret     *corev1.Secret
+		expectedHash  string
+		expectedError string
+	}{
+		"the customer's command reads the key": {
+			parameters: mdbv1.StartupParameters{"mmsApiKeyExec": "cat /custom/key"},
+			baseURL:    "https://ops-manager.example.com",
+			projectID:  projectID,
+		},
+		"the customer sets a raw key": {
+			parameters:   mdbv1.StartupParameters{"mmsApiKey": "customer-api-key"},
+			baseURL:      "https://ops-manager.example.com",
+			projectID:    projectID,
+			expectedHash: hashCredential("customer-api-key"),
+		},
+		"the key comes from the default Secret": {
+			baseURL:      "https://ops-manager.example.com",
+			projectID:    projectID,
+			keySecret:    credentialSecret(mdb.Namespace, mdbv1.AgentAPIKeySecretName(projectID), util.OmAgentApiKey, "project-key"),
+			expectedHash: hashCredential("project-key"),
+		},
+		"the key comes from the customer key volume": {
+			baseURL:      "https://ops-manager.example.com",
+			projectID:    projectID,
+			volume:       &customerKeyVolume,
+			keySecret:    credentialSecret(mdb.Namespace, "customer-credential", "custom-key", "customer-key"),
+			expectedHash: hashCredential("customer-key"),
+		},
+		"the mounted key is present": {
+			parameters:   mdbv1.StartupParameters{"mmsBaseUrl": ""},
+			baseURL:      "https://ops-manager.example.com",
+			projectID:    projectID,
+			keySecret:    credentialSecret(mdb.Namespace, mdbv1.AgentAPIKeySecretName(projectID), util.OmAgentApiKey, "mounted-key"),
+			expectedHash: hashCredential("mounted-key"),
+		},
+		"the mounted key is absent": {
+			parameters: mdbv1.StartupParameters{"mmsBaseUrl": ""},
+			baseURL:    "https://ops-manager.example.com",
+			projectID:  projectID,
+		},
+		"a missing project ID cannot select a Secret": {
+			baseURL:       "https://ops-manager.example.com",
+			expectedError: "cannot read agent startup credential: agent credential needs a project ID",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			if test.keySecret != nil {
+				require.NoError(t, fakeClient.CreateSecret(ctx, *test.keySecret))
+			}
+			source := construct.AgentSettingsSource{Config: &mdbv1.AgentConfig{StartupParameters: test.parameters}}
+			if test.volume != nil {
+				source.Override = &appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Volumes: []corev1.Volume{*test.volume}}}}
+			}
+
+			hash, err := AgentCredentialHash(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, source, test.baseURL, test.projectID)
+
+			if test.expectedError != "" {
+				require.EqualError(t, err, test.expectedError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.expectedHash, hash)
+		})
+	}
+}
+
+// A customer mmsBaseUrl makes the agent read the key even without an Ops Manager base URL, so the missing project
+// ID must be reported instead of a Secret lookup or the mounted-key fallback.
+func TestAgentCredentialHashNeedsAProjectIDWithCustomerBaseURL(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	source := construct.AgentSettingsSource{Config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": "https://customer.example.com"}}}
+
+	_, err := AgentCredentialHash(ctx, secrets.SecretClient{KubeClient: fakeClient}, "test-ns", source, "", "")
+
+	require.EqualError(t, err, "cannot read agent startup credential: agent credential needs a project ID")
+}
+
 func TestDatabaseAgentRuntimeEnvironmentIsRejected(t *testing.T) {
 	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
 		t.Run(string(architecture), func(t *testing.T) {
@@ -388,14 +492,13 @@ func TestReconcileAgentCredentialFailsOnTransientVaultRead(t *testing.T) {
 	t.Cleanup(server.Close)
 	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
 	require.NoError(t, err)
-	opts := construct.DatabaseStatefulSetOptions{PodVars: &env.PodEnvVars{ProjectID: "test-project"}}
 	secretClient := secrets.SecretClient{VaultClient: vaultClient}
-	_, err = databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", opts)
+	_, err = databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", "test-project", nil)
 	require.Error(t, err)
 	failMu.Lock()
 	fail = false
 	failMu.Unlock()
-	credential, err := databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", opts)
+	credential, err := databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", "test-project", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "vault-key", credential)
 }
@@ -410,7 +513,7 @@ func TestReconcileDatabaseAgentSettingsMultiCluster(t *testing.T) {
 		opts.PodVars.BaseURL = "https://ops-manager.example.com"
 	})
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	keySecretName := agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID)
+	keySecretName := mdbv1.AgentAPIKeySecretName(options(*mdb).PodVars.ProjectID)
 	require.NoError(t, fakeClient.CreateSecret(ctx, corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: keySecretName, Namespace: sts.Namespace},
 		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
@@ -638,17 +741,6 @@ func TestDatabaseInKubernetesDoesNotChangeStatefulSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want.Spec.Template, sts.Spec.Template)
 	assert.Equal(t, want.Spec.Template, created.Spec.Template, "the StatefulSet must already be final when it reaches DatabaseInKubernetes")
-}
-
-func TestSetAgentCredentialMountsKeySecretWithoutVaultClient(t *testing.T) {
-	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
-	ctx := context.Background()
-	fakeClient, _ := mock.NewDefaultFakeClient()
-	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	opts := construct.ReplicaSetOptions(construct.GetPodEnvOptions())(*mdb)
-	require.NoError(t, SetAgentCredential(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, &opts))
-	assert.True(t, opts.MountAgentAPIKeySecret)
-	assert.NotEmpty(t, construct.AgentAPIKeySecretName(construct.DatabaseStatefulSetFromOptions(*mdb, opts, zap.S())))
 }
 
 func TestDatabaseAgentSettingsHashTracksCustomerKeyVolume(t *testing.T) {
@@ -2471,4 +2563,10 @@ func TestDroppedMetadataEntries(t *testing.T) {
 			assert.Equal(t, tc.expected, droppedMetadataEntries(tc.desired, tc.existing))
 		})
 	}
+}
+
+func TestAgentCredentialStatus(t *testing.T) {
+	notFound := fmt.Errorf("cannot read agent startup credential: %w", errors.NewNotFound(corev1.Resource("secrets"), "my-project-group-secret"))
+	assert.Equal(t, status.PhasePending, AgentCredentialStatus(notFound, "failed to prepare StatefulSet").Phase())
+	assert.Equal(t, status.PhaseFailed, AgentCredentialStatus(fmt.Errorf("boom"), "failed to prepare StatefulSet").Phase())
 }

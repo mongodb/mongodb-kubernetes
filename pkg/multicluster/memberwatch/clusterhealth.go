@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -22,7 +22,7 @@ type ClusterHealthChecker interface {
 
 type MemberHealthCheck struct {
 	Server string
-	Client *retryablehttp.Client
+	Client *retry.Client
 	Token  string
 }
 
@@ -33,11 +33,11 @@ var (
 )
 
 // HealthCheckOption is a functional option for configuring MemberHealthCheck
-type HealthCheckOption func(*retryablehttp.Client)
+type HealthCheckOption func(*retry.Client)
 
 // WithRetryConfig configures the retry behavior of the health check client
 func WithRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) HealthCheckOption {
-	return func(client *retryablehttp.Client) {
+	return func(client *retry.Client) {
 		client.RetryWaitMin = retryWaitMin
 		client.RetryWaitMax = retryWaitMax
 		client.RetryMax = retryMax
@@ -66,23 +66,23 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 		}
 	}
 
-	client := &retryablehttp.Client{
-		HTTPClient: &http.Client{
-			Transport: transport,
-			Timeout:   time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
-		},
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
+	}
+	client := &retry.Client{
+		HTTPClient:   httpClient,
 		RetryWaitMin: DefaultRetryWaitMin,
 		RetryWaitMax: DefaultRetryWaitMax,
 		RetryMax:     DefaultRetryMax,
-		// Will retry on all errors
-		CheckRetry: retryablehttp.DefaultRetryPolicy,
+		CheckRetry:   retry.DefaultRetryPolicy,
 		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
 		// We don't need Jitter here as we're the only client to the OM, so there's no risk
 		// of overwhelming it in a peek.
-		Backoff: retryablehttp.DefaultBackoff,
-		RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
-			if i > 0 {
-				log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
+		Backoff: retry.DefaultBackoff,
+		RequestLogHook: func(_ retry.Logger, request *http.Request, attempt int) {
+			if attempt > 0 {
+				log.Warnf("Retrying (#%d) failed health check to %s (%s)", attempt, server, request.URL)
 			}
 		},
 	}
@@ -116,9 +116,9 @@ func (m *MemberHealthCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 }
 
 // check pings the "/readyz" endpoint of a cluster's API server and checks if it is healthy
-func check(client *retryablehttp.Client, server string, token string) (int, error) {
+func check(client *retry.Client, server string, token string) (int, error) {
 	endPoint := fmt.Sprintf("%s/readyz", server)
-	req, err := retryablehttp.NewRequest("GET", endPoint, nil)
+	req, err := retry.NewRequest(http.MethodGet, endPoint, nil)
 	if err != nil {
 		return 0, err
 	}

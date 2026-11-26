@@ -122,7 +122,7 @@ install_hook() {
 }
 
 @test "create_worktree: uses existing local branch without error" {
-    git -C "${PROJECT_DIR}" branch "${TEST_BRANCH}"
+    git -C "${PROJECT_DIR}" branch "${TEST_BRANCH}" HEAD
 
     run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
 

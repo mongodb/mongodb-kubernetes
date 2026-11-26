@@ -108,6 +108,8 @@ type ConfigOIDC struct {
 	ClientSecretFile string         `json:"clientSecretFile"`
 	IDPCaFile        string         `json:"idpCaFile"`
 	Scope            *string        `json:"scope,omitempty"`
+	Audience         *string        `json:"audience,omitempty"`
+	Resource         *string        `json:"resource,omitempty"`
 	TLS              *ConfigOIDCTLS `json:"tls,omitempty"`
 }
 

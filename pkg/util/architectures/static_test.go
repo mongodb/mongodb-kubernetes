@@ -186,6 +186,42 @@ func TestContainerImageTypeAnnotationWarning(t *testing.T) {
 	}
 }
 
+func TestValidateDatabaseImageType(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		defaultImageType    ImageType
+		wantError           bool
+	}{
+		{name: "static default", defaultArchitecture: Static},
+		{name: "static ubi9", defaultArchitecture: Static, defaultImageType: ImageTypeUBI9},
+		{name: "static slim", defaultArchitecture: Static, defaultImageType: ImageTypeUBI9Slim},
+		{name: "static inherited ubi8", defaultArchitecture: Static, defaultImageType: ImageTypeUBI8, wantError: true},
+		{name: "static explicit ubi8", defaultArchitecture: Static, defaultImageType: ImageTypeUBI9, annotations: map[string]string{ContainerImageTypeAnnotation: "ubi8"}, wantError: true},
+		{name: "static override on non-static operator", defaultArchitecture: NonStatic, defaultImageType: ImageTypeUBI8, annotations: map[string]string{ArchitectureAnnotation: "static"}, wantError: true},
+		{name: "non-static override on static operator", defaultArchitecture: Static, defaultImageType: ImageTypeUBI8, annotations: map[string]string{ArchitectureAnnotation: "non-static"}},
+		{name: "ubi9 overrides inherited ubi8", defaultArchitecture: Static, defaultImageType: ImageTypeUBI8, annotations: map[string]string{ContainerImageTypeAnnotation: "ubi9"}},
+		{name: "slim overrides inherited ubi8", defaultArchitecture: Static, defaultImageType: ImageTypeUBI8, annotations: map[string]string{ContainerImageTypeAnnotation: "ubi9-slim"}},
+		{name: "invalid annotation falls back to inherited ubi8", defaultArchitecture: Static, defaultImageType: ImageTypeUBI8, annotations: map[string]string{ContainerImageTypeAnnotation: "invalid"}, wantError: true},
+		{name: "invalid annotation uses static default", defaultArchitecture: Static, annotations: map[string]string{ContainerImageTypeAnnotation: "invalid"}},
+		{name: "non-static default", defaultArchitecture: NonStatic},
+		{name: "non-static ubi8", defaultArchitecture: NonStatic, defaultImageType: ImageTypeUBI8},
+		{name: "non-static explicit ubi8", defaultArchitecture: NonStatic, annotations: map[string]string{ContainerImageTypeAnnotation: "ubi8"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateDatabaseImageType(tt.annotations, tt.defaultArchitecture, tt.defaultImageType)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("ValidateDatabaseImageType() = %v, wantError %v", err, tt.wantError)
+			}
+			if err != nil && err.Error() != `container image type "ubi8" is not supported with static architecture` {
+				t.Errorf("unexpected error message %q", err)
+			}
+		})
+	}
+}
+
 func TestValidateDefaultImageType(t *testing.T) {
 	tests := []struct {
 		value       string

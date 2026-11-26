@@ -61,8 +61,7 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	// watch for changes to standalone MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.Standalone)))
 	if err != nil {
 		return err
 	}
@@ -160,9 +159,16 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	if !s.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, s, util.MongoDBFinalizer, r, log)
+	}
+
 	log.Warn(mdbv1.StandaloneDeprecationMessage)
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
+	}
+	if err := architectures.ValidateDatabaseImageType(s.GetAnnotations(), r.defaultArchitecture, r.defaultImageType); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
 	if warning := databaseContainerImageTypeAnnotationWarning(s.GetAnnotations(), r.defaultArchitecture); warning != "" {
@@ -178,14 +184,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
+	if err := r.ensureFinalizer(ctx, s, util.MongoDBFinalizer, log); err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
+	}
 
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
-	}
-
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, s, status, log)
 	}
 
 	if !architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
@@ -193,7 +198,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
-	r.resourceWatcher.AddWatchedResourceIfNotAdded(agents.ApiKeySecretName(conn.GroupID()), s.Namespace, watch.Secret, s.ObjectKey())
+	r.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), s.Namespace, watch.Secret, s.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, s.Name, nil, log)
 	if !reconcileResult.IsOK() {
@@ -249,8 +254,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 
 	var databaseSecretPath string
+	vaultInjectsAgentAPIKey := false
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+		vaultInjectsAgentAPIKey = true
 	}
 
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
@@ -279,12 +286,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	credentialHash, err := create.AgentCredentialHash(ctx, r.SecretClient, s.Namespace, construct.DatabaseAgentSettingsSource(*s), podVars.BaseURL, podVars.ProjectID)
+	if err != nil {
+		return r.updateStatus(ctx, s, create.AgentCredentialStatus(err, "Failed to prepare StatefulSet"), log)
+	}
+
 	standaloneOptsFunc := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		AgentCertHash(agentCertHash),
+		WithAgentCredentialHash(credentialHash),
 		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
@@ -300,9 +314,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	)
 
 	standaloneOpts := standaloneOptsFunc(*s)
-	if err := create.SetAgentCredential(ctx, r.SecretClient, s.Namespace, &standaloneOpts); err != nil {
-		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet: %w", err)), log)
-	}
 	sts := construct.DatabaseStatefulSetFromOptions(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
@@ -416,20 +427,20 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	return workflow.OK()
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
 	r.ReleaseOtelExporter(s.Status.Link, log)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.client, r.SecretClient, s, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
-
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
-	if err != nil {
-		return err
+	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", s.Name)
+		return nil
 	}
 
 	processNames := make([]string, 0)
@@ -457,7 +468,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	hostsToRemove := []string{s.StandaloneHostname()}
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, 0, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = stdErrors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}

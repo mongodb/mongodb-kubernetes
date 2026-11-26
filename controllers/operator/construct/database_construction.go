@@ -15,7 +15,6 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
@@ -158,17 +157,22 @@ type DatabaseStatefulSetOptions struct {
 	DownloadBase string
 
 	// AgentCredentialHash covers the API key the agent reads at startup, so rotating the key rolls
-	// the pods. The controller reads the key and sets it before the StatefulSet is built.
+	// the pods. The controller sets it with the WithAgentCredentialHash option.
 	AgentCredentialHash string
-	// MountAgentAPIKeySecret mounts the Kubernetes key Secret with the Vault backend, for member
-	// clusters that have no Vault client.
-	MountAgentAPIKeySecret bool
+	// VaultInjectsAgentAPIKey leaves out the Kubernetes key Secret volume because Vault injects the key.
+	// The WithVaultInjectedAgentAPIKey option sets it, so the zero value keeps the volume.
+	VaultInjectsAgentAPIKey bool
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
 	return func(options *DatabaseStatefulSetOptions) {
 		options.DefaultArchitecture = defaultArchitecture
 	}
+}
+
+// AgentSettingsSource returns the agent config and StatefulSet override the options carry.
+func (d DatabaseStatefulSetOptions) AgentSettingsSource() AgentSettingsSource {
+	return AgentSettingsSource{Config: d.AgentConfig, Override: d.StatefulSetSpecOverride}
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -207,6 +211,24 @@ type databaseStatefulSetSource interface {
 	GetDownloadBase() string
 
 	IsRoleAppDB() bool
+}
+
+// DatabaseAgentSettingsSource returns the agent settings source of a single-cluster database.
+func DatabaseAgentSettingsSource(mdb mdbv1.MongoDB) AgentSettingsSource {
+	source := AgentSettingsSource{Config: &mdb.Spec.Agent}
+	if mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+		source.Override = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate}
+	}
+	return source
+}
+
+// ShardedAgentSettingsSource returns the agent settings source of a sharded cluster component in a member cluster.
+func ShardedAgentSettingsSource(componentSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string) AgentSettingsSource {
+	source := AgentSettingsSource{Config: componentSpec.GetAgentConfig()}
+	if configuration := componentSpec.GetClusterSpecItem(memberClusterName).StatefulSetConfiguration; configuration != nil {
+		source.Override = &configuration.SpecWrapper.Spec
+	}
+	return source
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -407,26 +429,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 // DatabaseStatefulSetFromOptions builds the StatefulSet from options that are already final. Callers
 // that read a Secret to fill the options in build them once and pass the value here.
 func DatabaseStatefulSetFromOptions(mdb mdbv1.MongoDB, stsOptions DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
-	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
-
-	if len(stsOptions.Annotations) > 0 {
-		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
-	}
-
-	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
-	}
-
-	if len(stsOptions.StsLabels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
-	}
-
-	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
-	}
-
-	ApplyAgentSettings(&dbSts, stsOptions)
-	return dbSts
+	return DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 }
 
 func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
@@ -444,6 +447,24 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
 	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
+
+	if len(stsOpts.Annotations) > 0 {
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, stsOpts.Annotations)
+	}
+
+	if len(stsOpts.Labels) > 0 {
+		sts.Labels = merge.StringToStringMap(sts.Labels, util.StripOwnerLabels(stsOpts.Labels))
+	}
+
+	if len(stsOpts.StsLabels) > 0 {
+		sts.Labels = merge.StringToStringMap(sts.Labels, stsOpts.StsLabels)
+	}
+
+	if stsOpts.StatefulSetSpecOverride != nil {
+		sts.Spec = merge.StatefulSetSpecs(sts.Spec, WithoutHolderContainer(*stsOpts.StatefulSetSpecOverride, log))
+	}
+
+	applyAgentSettings(&sts, *stsOpts)
 	return sts
 }
 
@@ -475,8 +496,8 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	}
 
 	// add vault specific annotations
-	secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
-	if _, ok := AgentAPIKeyOverride(opts); ok {
+	secretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(opts.PodVars.ProjectID)
+	if _, ok := opts.AgentSettingsSource().APIKeyOverride(); ok {
 		secretsToInject.AgentApiKey = AgentAPIKeyOverrideSecretName(opts.GetStatefulSetName())
 	}
 	if mdb.GetSecurity().IsTLSEnabled() {
@@ -785,8 +806,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
-	if !vault.IsVaultSecretBackend() || databaseOpts.MountAgentAPIKeySecret {
-		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
+	if !databaseOpts.VaultInjectsAgentAPIKey && databaseOpts.PodVars != nil {
+		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
@@ -809,12 +830,12 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
-	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
+	// /opt/scripts stays as the parent of the hostname override mount in /opt/scripts/config
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
-	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false) // writable for shim script
+	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false)
 
-	volumes := []corev1.Volume{scriptsVolume}
-	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+	volumes := []corev1.Volume{scriptsVolume, initDatabaseImageVolume(opts.InitDatabaseImage)}
+	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount, initDatabaseImageVolumeMount()}
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -824,11 +845,14 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
-		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithLivenessProbe(probes.Apply(DatabaseLivenessProbe(), probes.WithExecCommand([]string{staticDatabaseLivenessProbeCmd}))),
+		container.WithReadinessProbe(probes.Apply(DatabaseReadinessProbe(), probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
+		container.WithStartupProbe(probes.Apply(DatabaseStartupProbe(), probes.WithExecCommand([]string{staticDatabaseLivenessProbeCmd}))),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
+		// Skip the agent image's shim, which waits for the holder container that no longer exists.
+		container.WithCommand(staticAgentLauncherCommand),
 		container.WithVolumeMounts(volumeMounts),
 		configureContainerSecurityContext,
 	)}
@@ -843,22 +867,12 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
-	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
-		container.WithName(util.AgentContainerUtilitiesName),
-		container.WithArgs([]string{""}),
-		container.WithImage(opts.InitDatabaseImage),
-		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
-		configureContainerSecurityContext,
-	)}
-
 	mods := []podtemplatespec.Modification{
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
-		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
 	}
 
 	return podtemplatespec.Apply(mods...)

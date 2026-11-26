@@ -1734,8 +1734,7 @@ func buildPrometheusModification(ctx context.Context, sClient secrets.SecretClie
 
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
-		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, om.GetNamespace(), secretName)
+		passwordString := fmt.Sprintf("%s/%s/%s", sClient.VaultClient.OperatorSecretPathOrEmpty(), om.GetNamespace(), secretName)
 		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
 		if err != nil {
 			return automationconfig.NOOP(), err
@@ -2046,12 +2045,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
 func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, agentCertPath string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
-	var operatorVaultSecretPath string
-	if r.VaultClient != nil {
-		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
-	}
-
-	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, r.SecretClient, operatorVaultSecretPath)
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, r.SecretClient, r.VaultClient.OperatorSecretPathOrEmpty())
 	if err != nil {
 		return env.PodEnvVars{}, xerrors.Errorf("error getting opsManager secret name: %w", err)
 	}
@@ -2193,11 +2187,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 		return env.PodEnvVars{}, xerrors.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	var operatorVaultSecretPath string
-	if r.VaultClient != nil {
-		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
-	}
-	APISecretName, err := om.APIKeySecretName(ctx, r.SecretClient, operatorVaultSecretPath)
+	APISecretName, err := om.APIKeySecretName(ctx, r.SecretClient, r.VaultClient.OperatorSecretPathOrEmpty())
 	if err != nil {
 		return env.PodEnvVars{}, xerrors.Errorf("error getting ops-manager API secret name: %w", err)
 	}
@@ -2221,7 +2211,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 	}
 
 	agentAPIKey, err := r.helper.getMemberCluster(r.helper.getNameOfFirstMemberCluster()).SecretClient.ReadSecretKey(
-		ctx, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
+		ctx, kube.ObjectKey(om.Namespace, mdbv1.AgentAPIKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
 	if err != nil {
 		log.Warnf("Agent API key for project %s not readable yet (%v); AppDB monitoring will be configured once it is available", projectId, err)
 		return podVars, nil

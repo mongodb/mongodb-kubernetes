@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Iterator
 
 import pytest
 from _pytest.main import Session
@@ -9,6 +9,7 @@ from _pytest.runner import CallInfo
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerProvider
 from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
+from pytest_opentelemetry.items import item_attributes
 
 
 class PrefixProcessor(SpanProcessor):
@@ -26,12 +27,13 @@ class PrefixProcessor(SpanProcessor):
 class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
     # This ensures that our pytest finish runs first before the plugins and we can attach spans before
     # they are getting flushed.
-    def pytest_sessionfinish(self, session: Session, exitstatus: Optional[int] = None) -> None:
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_sessionfinish(self, session: Session) -> Iterator[None]:
         # Add the exit status as an attribute if available
         self.session_span.set_attribute("mck.pytest.overall_exit_status", int(session.exitstatus))
 
         # Call the parent implementation
-        super().pytest_sessionfinish(session)
+        yield from super().pytest_sessionfinish(session)
 
     @staticmethod
     def pytest_exception_interact(
@@ -67,7 +69,7 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
         if not current_span:
             return
 
-        attributes = self._attributes_from_item(item)
+        attributes = item_attributes(item)
         prefixed_attributes = self._prefix_attributes(attributes)
         current_span.set_attributes(prefixed_attributes)
         current_span.set_attribute(f"mck.pytest.outcome.{call.when}", report.outcome)

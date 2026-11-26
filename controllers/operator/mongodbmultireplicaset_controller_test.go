@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 	"testing/synctest"
@@ -61,6 +62,36 @@ func init() {
 }
 
 var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
+
+func TestMultiReplicaSetContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			if !inherited {
+				mrs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			}
+			r, cl, members, factory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.Static)
+			if inherited {
+				r.defaultImageType = architectures.ImageTypeUBI8
+			}
+			factory.SetPostCreateHook(func(om.Connection) {
+				t.Error("invalid image type must be rejected before connecting to Ops Manager")
+			})
+			result, err := r.Reconcile(ctx, requestFromObject(mrs))
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			require.NoError(t, cl.Get(ctx, kube.ObjectKeyFromApiObject(mrs), mrs))
+			assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+			assert.Contains(t, mrs.Status.Message, "not supported with static architecture")
+			for name, member := range members {
+				statefulSets := &appsv1.StatefulSetList{}
+				require.NoError(t, member.List(ctx, statefulSets))
+				assert.Empty(t, statefulSets.Items, name)
+			}
+		})
+	}
+}
 
 func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client client.Client, shouldRequeue bool) {
 	err := client.Update(ctx, m)
@@ -233,7 +264,7 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 			require.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
@@ -1007,6 +1038,82 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 	}
 }
 
+// The credential hash is computed per member cluster before the options are built, so rotating the
+// key must reach the applied pod templates through the WithAgentCredentialHash option.
+func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, kubeClient, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	appliedHashes := func() map[string][]string {
+		hashes := map[string][]string{}
+		for clusterName, memberClient := range memberClusterMap {
+			sets := &appsv1.StatefulSetList{}
+			require.NoError(t, memberClient.List(ctx, sets))
+			require.NotEmpty(t, sets.Items)
+			for _, set := range sets.Items {
+				hash := set.Spec.Template.Annotations[construct.AgentSettingsHash]
+				require.NotEmpty(t, hash)
+				hashes[clusterName] = append(hashes[clusterName], hash)
+			}
+		}
+		return hashes
+	}
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+	before := appliedHashes()
+
+	// The operator syncs the central key Secret into every member cluster, so rotating it there
+	// reaches the credential each member cluster's hash covers.
+	keySecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mdb.AgentAPIKeySecretName(om.TestGroupID)), keySecret))
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, *keySecret))
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+	after := appliedHashes()
+
+	for _, clusterName := range clusters {
+		assert.NotEqual(t, before[clusterName], after[clusterName], clusterName)
+	}
+}
+
+// Removing a member cluster only deletes its StatefulSet, so it must not wait for a key Secret that
+// the agent would have read there, such as a customer Secret that is already gone.
+func TestMultiReplicaSetRemovedClusterIsDeletedWithoutItsKeySecret(t *testing.T) {
+	ctx := context.Background()
+	customerKeyVolume := corev1.Volume{
+		Name: construct.AgentAPIKeyVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: "customer-credential",
+			Items:      []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey}},
+		}},
+	}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	for i := range mrs.Spec.ClusterSpecList {
+		mrs.Spec.ClusterSpecList[i].Members = 1
+	}
+	removed := len(clusters) - 1
+	mrs.Spec.ClusterSpecList[removed].StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{
+		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Volumes: []corev1.Volume{customerKeyVolume}}}},
+	}}
+	reconciler, kubeClient, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	removedClient := memberClusterMap[clusters[removed]]
+	customerSecret := corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "customer-credential", Namespace: mrs.Namespace}, Data: map[string][]byte{"custom-key": []byte("customer-key")}}
+	require.NoError(t, removedClient.Create(ctx, &customerSecret))
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	mrs.Spec.ClusterSpecList[removed].Members = 0
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+	mrs.Spec.ClusterSpecList = mrs.Spec.ClusterSpecList[:removed]
+	require.NoError(t, removedClient.Delete(ctx, &customerSecret))
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	sets := &appsv1.StatefulSetList{}
+	require.NoError(t, removedClient.List(ctx, sets))
+	assert.Empty(t, sets.Items)
+}
+
 func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetSecurity(&mdb.Security{
@@ -1656,6 +1763,68 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 		assert.Equal(t, uuidStr, config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
+}
+
+func TestOnDeleteMultiClusterAutoTerminateStopsBackupBeforeHostRemoval(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	uuidStr := uuid.New().String()
+	mockedOmConn.EnableBackup(mrs.Name, backup.ReplicaSetType, uuidStr)
+	mrs.Spec.Backup = &mdb.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, mrs, zap.S()))
+
+	mockedOmConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(mockedOmConn.ReadBackupConfigs),
+		reflect.ValueOf(mockedOmConn.ReadHostCluster),
+		reflect.ValueOf(mockedOmConn.UpdateBackupStatus),
+		reflect.ValueOf(mockedOmConn.GetHosts),
+		reflect.ValueOf(mockedOmConn.RemoveHost),
+	)
+	require.NotNil(t, mockedOmConn.BackupConfigs[uuidStr])
+	assert.Equal(t, backup.Inactive, mockedOmConn.BackupConfigs[uuidStr].Status)
+
+	hosts, err := mockedOmConn.GetHosts(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, hosts.Results)
+}
+
+func TestOnDeleteMultiClusterBackupStopFailureStillDisablesAuth(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetConnectionSpec(testConnectionSpec()).
+		SetSecurity(&mdb.Security{
+			Authentication: &mdb.Authentication{Enabled: true, Modes: []mdb.AuthMode{"SCRAM"}},
+		}).
+		Build()
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	uuidStr := uuid.New().String()
+	mockedOmConn.EnableBackup(mrs.Name, backup.ReplicaSetType, uuidStr)
+	mrs.Spec.Backup = &mdb.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}
+	mockedOmConn.UpdateBackupStatusFunc = func(string, backup.Status) error {
+		return fmt.Errorf("cannot stop backup")
+	}
+	mockedOmConn.CleanHistory()
+
+	err := reconciler.OnDelete(ctx, mrs, zap.S())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to stop backup")
+
+	ac, err := mockedOmConn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.False(t, ac.Auth.IsEnabled())
 }
 
 func TestMultiClusterFailover(t *testing.T) {

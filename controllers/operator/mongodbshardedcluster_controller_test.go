@@ -109,6 +109,43 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
+// The credential hash is computed per tier before its options are built, so rotating the key must
+// reach the config server, mongos and shard pod templates through the WithAgentCredentialHash option.
+func TestShardedClusterAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	reconciler, _, kubeClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	statefulSets := []string{sc.ConfigRsName(), sc.MongosRsName(), sc.ShardName(0)}
+
+	appliedHashes := func() map[string]string {
+		hashes := map[string]string{}
+		for _, name := range statefulSets {
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts))
+			hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+			require.NotEmpty(t, hash, name)
+			hashes[name] = hash
+		}
+		return hashes
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	before := appliedHashes()
+
+	keySecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID)), keySecret))
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, *keySecret))
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	after := appliedHashes()
+
+	for _, name := range statefulSets {
+		assert.NotEqual(t, before[name], after[name], name)
+	}
+}
+
 func TestShardedClusterReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
@@ -334,7 +371,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 			assert.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
@@ -388,6 +425,64 @@ func TestShardedClusterReconcileContainerImageType(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName), stsName)
 			}
+		})
+	}
+}
+
+func TestShardedClusterContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	imageURLs := images.ImageUrls{
+		util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+	}
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			sc := test.DefaultClusterBuilder().SetVersion("8.0.23").SetShardCountSpec(1).Build()
+			reconciler, _, cl, factory, err := defaultShardedClusterReconciler(ctx, imageURLs, "", "", sc, nil, testBackupEnableDelay, architectures.Static)
+			require.NoError(t, err)
+			reconciler.defaultImageType = architectures.ImageTypeUBI9
+			if inherited {
+				reconciler.defaultImageType = architectures.ImageTypeUBI8
+			}
+			if !inherited {
+				sc.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+				require.NoError(t, cl.Update(ctx, sc))
+			}
+			connections := 0
+			factory.SetPostCreateHook(func(connection om.Connection) {
+				connections++
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			checkReconcileFailed(ctx, t, reconciler, sc, false, "not supported with static architecture", cl)
+			assert.Zero(t, connections, "validation must run before connecting to Ops Manager")
+			statefulSets := &appsv1.StatefulSetList{}
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.Empty(t, statefulSets.Items)
+
+			sc.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi9-slim"})
+			require.NoError(t, cl.Update(ctx, sc))
+			checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.NotEmpty(t, statefulSets.Items)
+			before := statefulSets.DeepCopy()
+			deployment, err := factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			beforeDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+
+			sc.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			require.NoError(t, cl.Update(ctx, sc))
+			checkReconcileFailed(ctx, t, reconciler, sc, false, "not supported with static architecture", cl)
+			for _, previous := range before.Items {
+				current := &appsv1.StatefulSet{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(&previous), current))
+				assert.Equal(t, previous.Spec, current.Spec, previous.Name)
+			}
+			deployment, err = factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			afterDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(beforeDeployment), string(afterDeployment))
 		})
 	}
 }
@@ -632,6 +727,29 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	mockedOmConnection.CheckOrderOfOperations(t,
 		reflect.ValueOf(mockedOmConnection.ReadUpdateDeployment), reflect.ValueOf(mockedOmConnection.ReadAutomationStatus),
 		reflect.ValueOf(mockedOmConnection.GetHosts), reflect.ValueOf(mockedOmConnection.RemoveHost))
+}
+
+// TestDeleteShardedClusterDoesNotRecreateTheStateConfigMap verifies that the
+// deletion path reads the deployment state without writing it. A write would
+// recreate the state ConfigMap, and Kubernetes rejects that create in a
+// terminating namespace, which would keep the finalizer.
+func TestDeleteShardedClusterDoesNotRecreateTheStateConfigMap(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+
+	reconciler, _, clusterClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+
+	stateConfigMapKey := kube.ObjectKey(sc.Namespace, sc.Name+"-state")
+	require.NoError(t, clusterClient.Get(ctx, stateConfigMapKey, &corev1.ConfigMap{}))
+	require.NoError(t, clusterClient.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: stateConfigMapKey.Name, Namespace: stateConfigMapKey.Namespace}}))
+
+	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
+
+	err = clusterClient.Get(ctx, stateConfigMapKey, &corev1.ConfigMap{})
+	require.True(t, errors.IsNotFound(err), "the deletion path must not recreate the state config map")
 }
 
 // TestDeleteShardedClusterWithExternalMembers verifies that deleting a hybrid (mid-migration)
@@ -1166,22 +1284,22 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy, architectures.Static)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateSc0.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[len(podSpecTemplateSc0.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateSc1.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[len(podSpecTemplateSc1.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[len(podSpecTemplateMongoS.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[len(podSpecTemplateScConfig.Containers)-1].Name, "Custom container should be last")
 }
@@ -1837,6 +1955,65 @@ func TestShardSpecificPodSpec(t *testing.T) {
 
 	// shard1 should have the common one
 	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy, architectures.NonStatic)
+}
+
+// TestShardedClusterStatefulSetStatus checks that on first deployment the pending StatefulSets are reported component
+// by component, in the order config servers, shards, mongos.
+func TestShardedClusterStatefulSetStatus(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	// the default builder seeds the sizes of an existing deployment, which skips the first deployment path
+	sc.Status = mdbv1.MongoDbStatus{}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	ready := map[string]bool{}
+	kubeClient := newStatefulSetReadinessClient(omConnectionFactory, ready, append(mock.GetDefaultResources(), sc)...)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	steps := [][]status.ResourceNotReady{
+		{statefulSetNotReady(sc.Name+"-config", sc.Spec.ConfigServerCount)},
+		{statefulSetNotReady(sc.Name+"-0", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-1", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-mongos", sc.Spec.MongosCount)},
+	}
+	checkStatefulSetStatusInSteps(ctx, t, reconciler, sc, kubeClient, ready, steps)
+}
+
+// newStatefulSetReadinessClient returns a fake client on which a StatefulSet reports ready only once its name is in ready.
+func newStatefulSetReadinessClient(omConnectionFactory *om.CachedOMConnectionFactory, ready map[string]bool, objects ...client.Object) kubernetesClient.Client {
+	return kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, ready[key.Name], true)(ctx, c, key, obj, opts...)
+		},
+	}).Build())
+}
+
+func statefulSetNotReady(name string, members int) status.ResourceNotReady {
+	return status.ResourceNotReady{
+		Kind:    status.StatefulsetKind,
+		Name:    name,
+		Message: fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: 0, ready: 0, current: 0)", members),
+	}
+}
+
+// checkStatefulSetStatusInSteps reconciles once per step, expecting exactly the StatefulSets of the step to be reported
+// not ready, and marks them ready afterwards. Once all steps are done the resource must reach Running.
+func checkStatefulSetStatusInSteps(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, kubeClient kubernetesClient.Client, ready map[string]bool, steps [][]status.ResourceNotReady) {
+	for _, expected := range steps {
+		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		assert.Positive(t, result.RequeueAfter)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+		assert.Equal(t, status.PhasePending, sc.Status.Phase)
+		assert.ElementsMatch(t, expected, sc.Status.ResourcesNotReady)
+		for _, resource := range expected {
+			ready[resource.Name] = true
+		}
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	assert.Empty(t, sc.Status.ResourcesNotReady)
 }
 
 func TestShardedClusterAgentVersionMapping(t *testing.T) {
@@ -3099,6 +3276,10 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 	}
 
 	sc := test.DefaultClusterBuilder().Build()
+	// The source must have authentication enabled for a SCRAM search to be wired: a
+	// disabled source configures none of the modes it lists.
+	sc.Spec.Security.Authentication.Enabled = true
+	sc.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM")}
 	oidcModes := []struct {
 		name string
 		lb   *searchv1.LoadBalancerConfig

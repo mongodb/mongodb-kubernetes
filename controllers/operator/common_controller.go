@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -485,6 +486,46 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj client.Object, finalizer string, log *zap.SugaredLogger) error {
+	if controllerutil.ContainsFinalizer(obj, finalizer) {
+		return nil
+	}
+	// We use Patch to only add the finalizer. A full Update drops zero-valued
+	// fields such as members=0. The optimistic lock makes a concurrent
+	// metadata write fail the patch instead of replacing its finalizer list.
+	base := obj.DeepCopyObject().(client.Object)
+	patched := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(patched, finalizer)
+	if err := r.client.Patch(ctx, patched, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return xerrors.Errorf("failed to add finalizer %s: %w", finalizer, err)
+	}
+	obj.SetFinalizers(patched.GetFinalizers())
+	obj.SetResourceVersion(patched.GetResourceVersion())
+	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
+	return nil
+}
+
+// finalize runs cleanup and releases the finalizer only after cleanup succeeds.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
+func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, deleter Deleter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := deleter.OnDelete(ctx, obj, log); err != nil {
+		return reconcile.Result{}, err
+	}
+	base := obj.DeepCopyObject().(client.Object)
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := r.client.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to remove finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Removed finalizer %s from %s", finalizer, obj.GetName())
+	return reconcile.Result{}, nil
+}
+
 // checkIfHasExcessProcesses will check if the project has excess processes.
 // Also, it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
@@ -905,20 +946,6 @@ func validateMongoDBResource(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Co
 		return status
 	}
 
-	return workflow.OK()
-}
-
-func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
-	omVersionString := conn.OpsManagerVersion()
-	if !omVersionString.IsCloudManager() {
-		omVersion, err := omVersionString.Semver()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
-		}
-		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
-			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
-		}
-	}
 	return workflow.OK()
 }
 
@@ -1350,8 +1377,7 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
-		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, namespace, secretName)
+		passwordString := fmt.Sprintf("%s/%s/%s", sClient.VaultClient.OperatorSecretPathOrEmpty(), namespace, secretName)
 		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
 		if err != nil {
 			log.Infof("Prometheus can't be enabled, %s", err)

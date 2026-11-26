@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -297,7 +299,7 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			absent:     []string{"mmsApiKey", "overrideLocalHost"},
 		},
 		{
-			name:       "empty API key override still selects credential delivery",
+			name:       "empty API key falls back to the project key",
 			parameters: mdbv1.StartupParameters{"mmsApiKey": ""},
 			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
 		},
@@ -385,7 +387,7 @@ func TestResolveAgentSettingsReturnsNewSettings(t *testing.T) {
 	base := mdbv1.StartupParameters{"logLevel": "INFO", "mmsBaseUrl": "https://ops-manager.example.com"}
 	original := maps.Clone(base)
 
-	resolved := resolveAgentSettings(base, &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG"}})
+	resolved := resolveAgentSettings(base, AgentSettingsSource{Config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG"}}})
 
 	assert.Equal(t, original, base, "the base settings must not be modified")
 	assert.Equal(t, "DEBUG", resolved["logLevel"])
@@ -1003,13 +1005,13 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 	assert.Nil(t, opts.ExternalAccessConfiguration)
 }
 
-func TestStaticAgentContainerRunsLauncherShim(t *testing.T) {
+func TestStaticAgentContainerRunsLauncherFromInitImage(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 
 	agent := AgentContainer(sts)
 	require.NotNil(t, agent)
-	assert.Equal(t, []string{"/usr/local/bin/agent-launcher-shim.sh"}, agent.Command)
+	assert.Equal(t, staticAgentLauncherCommand, agent.Command)
 	assert.Empty(t, agent.Args)
 }
 
@@ -1048,13 +1050,216 @@ func TestApplyAgentSettingsHashTracksCredential(t *testing.T) {
 func TestMountAgentAPIKeySecretWithVaultBackend(t *testing.T) {
 	t.Setenv("SECRET_BACKEND", "VAULT_BACKEND")
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	build := func(mount bool) string {
-		return AgentAPIKeySecretName(DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), func(opts *DatabaseStatefulSetOptions) {
-			opts.MountAgentAPIKeySecret = mount
-		}), zap.S()))
+	tests := map[string]struct {
+		vaultInjects  bool
+		expectedMount bool
+	}{
+		"Vault injects the key, so no Kubernetes Secret volume":              {vaultInjects: true, expectedMount: false},
+		"member clusters without a Vault client mount the Kubernetes Secret": {vaultInjects: false, expectedMount: true},
 	}
-	assert.Empty(t, build(false), "Vault injects the key, so no Kubernetes Secret volume")
-	assert.NotEmpty(t, build(true), "member clusters without a Vault client mount the Kubernetes Secret")
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+				func(opts *DatabaseStatefulSetOptions) { opts.PodVars = &env.PodEnvVars{ProjectID: "abcd"} },
+				func(opts *DatabaseStatefulSetOptions) { opts.VaultInjectsAgentAPIKey = test.vaultInjects },
+			), zap.S())
+			assert.Equal(t, test.expectedMount, MountedAgentAPIKeySecretName(sts) != "")
+		})
+	}
+}
+
+func TestAgentSettingsSourceReadsMountedAPIKeyMatchesTheFullSettings(t *testing.T) {
+	parameters := map[string]mdbv1.StartupParameters{
+		"no customer parameters": nil,
+		"empty raw key":          {"mmsApiKey": ""},
+		"raw key":                {"mmsApiKey": "x"},
+		"customer command":       {"mmsApiKeyExec": "cmd"},
+		"empty customer command": {"mmsApiKeyExec": ""},
+		"empty base url":         {"mmsBaseUrl": ""},
+		"base url":               {"mmsBaseUrl": "https://om.example.com"},
+		"dashed empty raw key":   {"-mmsApiKey": ""},
+	}
+
+	mountedFromFullSettings := func(config *mdbv1.AgentConfig, baseURL string) bool {
+		opts := DatabaseStatefulSetOptions{AgentConfig: config, PodVars: &env.PodEnvVars{BaseURL: baseURL}}
+		return databaseAgentSettings(opts, agentRuntime{})["mmsApiKeyExec"] == agentAPIKeyExecCommand()
+	}
+
+	for name, startupParameters := range parameters {
+		for _, baseURL := range []string{"", "https://om.example.com", "https://om.example.com/", "/"} {
+			t.Run(name+" baseURL="+baseURL, func(t *testing.T) {
+				config := &mdbv1.AgentConfig{StartupParameters: startupParameters}
+
+				assert.Equal(t, mountedFromFullSettings(config, baseURL), AgentSettingsSource{Config: config}.ReadsMountedAPIKey(baseURL))
+				assert.Equal(t, mountedFromFullSettings(nil, baseURL), AgentSettingsSource{}.ReadsMountedAPIKey(baseURL), "a nil agent config must not change the answer")
+			})
+		}
+	}
+}
+
+func TestAgentSettingsSourceAPIKeyOverride(t *testing.T) {
+	tests := map[string]struct {
+		config           *mdbv1.AgentConfig
+		expectedKey      string
+		expectedOverride bool
+	}{
+		"no agent config":                {config: nil},
+		"empty raw key":                  {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKey": ""}}},
+		"raw key":                        {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-key"}}, expectedKey: "customer-key", expectedOverride: true},
+		"customer command reads the key": {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-key", "mmsApiKeyExec": "cat /custom/key"}}},
+		"dashed raw key":                 {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"-mmsApiKey": "customer-key"}}, expectedKey: "customer-key", expectedOverride: true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			key, override := AgentSettingsSource{Config: test.config}.APIKeyOverride()
+
+			assert.Equal(t, test.expectedKey, key)
+			assert.Equal(t, test.expectedOverride, override)
+		})
+	}
+}
+
+func TestAgentSettingsSourceCustomerAPIKeyExec(t *testing.T) {
+	tests := map[string]struct {
+		config       *mdbv1.AgentConfig
+		expectedExec string
+	}{
+		"no agent config":         {config: nil},
+		"no startup options":      {config: &mdbv1.AgentConfig{}},
+		"empty command":           {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKeyExec": ""}}},
+		"customer command":        {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKeyExec": "cat /custom/key"}}, expectedExec: "cat /custom/key"},
+		"dashed customer command": {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"-mmsApiKeyExec": "cat /custom/key"}}, expectedExec: "cat /custom/key"},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.expectedExec, AgentSettingsSource{Config: test.config}.CustomerAPIKeyExec())
+		})
+	}
+}
+
+func TestAgentSettingsSourceReadsCredential(t *testing.T) {
+	const omURL = "https://om.example.com"
+	tests := map[string]struct {
+		config           *mdbv1.AgentConfig
+		baseURL          string
+		expectedReadsKey bool
+	}{
+		"no agent config and no base URL":      {},
+		"no agent config and a base URL":       {baseURL: omURL, expectedReadsKey: true},
+		"customer URL without a base URL":      {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": "https://customer.example.com"}}, expectedReadsKey: true},
+		"dashed customer URL":                  {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"-mmsBaseUrl": "https://customer.example.com"}}, expectedReadsKey: true},
+		"empty customer URL beats a base URL":  {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": ""}}, baseURL: omURL},
+		"customer URL beats a base URL":        {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": "https://customer.example.com"}}, baseURL: omURL, expectedReadsKey: true},
+		"unrelated startup options":            {config: &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG"}}, baseURL: omURL, expectedReadsKey: true},
+		"a slash-only base URL is not trimmed": {baseURL: "/", expectedReadsKey: true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.expectedReadsKey, AgentSettingsSource{Config: test.config}.ReadsCredential(test.baseURL))
+		})
+	}
+}
+
+func TestDatabaseAgentSettingsSourceMatchesConstructors(t *testing.T) {
+	customerPodTemplate := &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Hostname: "customer-host"}}
+
+	replicaSetWithTemplate := mdbv1.NewReplicaSetBuilder().Build()
+	replicaSetWithTemplate.Spec.PodSpec.PodTemplateWrapper.PodTemplate = customerPodTemplate
+	standaloneWithTemplate := mdbv1.NewStandaloneBuilder().Build()
+	standaloneWithTemplate.Spec.PodSpec.PodTemplateWrapper.PodTemplate = customerPodTemplate
+
+	tests := map[string]struct {
+		mdb   mdbv1.MongoDB
+		build func(mdbv1.MongoDB) DatabaseStatefulSetOptions
+	}{
+		"standalone without pod template": {
+			mdb:   *mdbv1.NewStandaloneBuilder().Build(),
+			build: func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return StandaloneOptions()(mdb) },
+		},
+		"standalone with pod template": {
+			mdb:   *standaloneWithTemplate,
+			build: func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return StandaloneOptions()(mdb) },
+		},
+		"replicaset without pod template": {
+			mdb:   *mdbv1.NewReplicaSetBuilder().Build(),
+			build: func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return ReplicaSetOptions()(mdb) },
+		},
+		"replicaset with pod template": {
+			mdb:   *replicaSetWithTemplate,
+			build: func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return ReplicaSetOptions()(mdb) },
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			source := DatabaseAgentSettingsSource(test.mdb)
+			opts := test.build(test.mdb)
+
+			assert.Equal(t, &test.mdb.Spec.Agent, source.Config)
+			assert.Equal(t, opts.AgentConfig, source.Config)
+			assert.Equal(t, opts.StatefulSetSpecOverride, source.Override)
+			assert.Equal(t, opts.AgentSettingsSource(), source)
+		})
+	}
+}
+
+func TestShardedAgentSettingsSourceMatchesConstructors(t *testing.T) {
+	sc := mdbv1.NewClusterBuilder().Build()
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+	configSrvSpec := createConfigSrvSpec(sc)
+	mongosSpec := createMongosSpec(sc)
+
+	tests := map[string]struct {
+		spec  *mdbv1.ShardedClusterComponentSpec
+		build func(spec *mdbv1.ShardedClusterComponentSpec) func(mdbv1.MongoDB) DatabaseStatefulSetOptions
+	}{
+		"shard": {
+			spec: shardSpec,
+			build: func(spec *mdbv1.ShardedClusterComponentSpec) func(mdbv1.MongoDB) DatabaseStatefulSetOptions {
+				return ShardOptions(0, spec, memberCluster.Name)
+			},
+		},
+		"config server": {
+			spec: configSrvSpec,
+			build: func(spec *mdbv1.ShardedClusterComponentSpec) func(mdbv1.MongoDB) DatabaseStatefulSetOptions {
+				return ConfigServerOptions(spec, memberCluster.Name)
+			},
+		},
+		"mongos": {
+			spec: mongosSpec,
+			build: func(spec *mdbv1.ShardedClusterComponentSpec) func(mdbv1.MongoDB) DatabaseStatefulSetOptions {
+				return MongosOptions(spec, memberCluster.Name)
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name+" without cluster statefulset override", func(t *testing.T) {
+			source := ShardedAgentSettingsSource(test.spec, memberCluster.Name)
+			opts := test.build(test.spec)(*sc)
+
+			assert.Equal(t, test.spec.GetAgentConfig(), source.Config)
+			assert.Equal(t, opts.AgentConfig, source.Config)
+			assert.Nil(t, source.Override)
+			assert.Equal(t, opts.StatefulSetSpecOverride, source.Override)
+		})
+
+		t.Run(name+" with cluster statefulset override", func(t *testing.T) {
+			override := appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Hostname: "member-cluster-host"}}}
+			spec := test.spec.DeepCopy()
+			spec.ClusterSpecList[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: override}}
+
+			source := ShardedAgentSettingsSource(spec, memberCluster.Name)
+			opts := test.build(spec)(*sc)
+
+			assert.Equal(t, &override, source.Override)
+			assert.Equal(t, opts.StatefulSetSpecOverride, source.Override)
+		})
+	}
 }
 
 func TestAgentAPIKeyOverrideUsesGeneratedVaultSecret(t *testing.T) {

@@ -2,10 +2,10 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.20.1.tgz"
   },
-  "mongodbOperator": "1.16.0",
-  "initDatabaseVersion": "1.16.0",
-  "initOpsManagerVersion": "1.16.0",
-  "databaseImageVersion": "1.16.0",
+  "mongodbOperator": "1.17.0",
+  "initDatabaseVersion": "1.17.0",
+  "initOpsManagerVersion": "1.17.0",
+  "databaseImageVersion": "1.17.0",
   "agentVersion": "109.0.2.9380-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
@@ -13,7 +13,9 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "1.70.1"
+    "version": "1.70.1",
+    "metricsForwarderVersion": "0.165.0",
+    "envoyVersion": "v1.37.11"
   },
   "latestOpsManagerAgentMapping": [
     {
@@ -122,7 +124,9 @@
         "1.14.1",
         "1.15.0",
         "1.15.1",
-        "1.16.0"
+        "1.16.0",
+        "1.16.1",
+        "1.17.0"
       ],
       "variants": [
         "ubi"
@@ -359,7 +363,9 @@
         "1.14.1",
         "1.15.0",
         "1.15.1",
-        "1.16.0"
+        "1.16.0",
+        "1.16.1",
+        "1.17.0"
       ],
       "variants": [
         "ubi"
@@ -394,7 +400,9 @@
         "1.14.1",
         "1.15.0",
         "1.15.1",
-        "1.16.0"
+        "1.16.0",
+        "1.16.1",
+        "1.17.0"
       ],
       "variants": [
         "ubi"
@@ -429,7 +437,9 @@
         "1.14.1",
         "1.15.0",
         "1.15.1",
-        "1.16.0"
+        "1.16.0",
+        "1.16.1",
+        "1.17.0"
       ],
       "variants": [
         "ubi"

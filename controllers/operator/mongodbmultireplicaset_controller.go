@@ -37,6 +37,7 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
@@ -147,6 +148,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
+	if !mrs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &mrs, util.MongoDBMultiClusterFinalizer, r, log)
+	}
+
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s reconciliation disabled by %s annotation; skipping",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
@@ -154,6 +159,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
+	}
+	if err := architectures.ValidateDatabaseImageType(mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
 	if warning := databaseContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
@@ -164,6 +172,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
+	}
+	if err := r.ensureFinalizer(ctx, &mrs, util.MongoDBMultiClusterFinalizer, log); err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
@@ -761,7 +772,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		// Copy the agent API key to the member cluster. Skip a no-op update so the member
 		// Secret watch does not trigger another reconciliation for data that is already present.
-		apiKeySecretName := agents.ApiKeySecretName(conn.GroupID())
+		apiKeySecretName := mdb.AgentAPIKeySecretName(conn.GroupID())
 		secretObject := corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      apiKeySecretName,
@@ -794,13 +805,32 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			}
 		}
 
+		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+		}
+
+		podVars := newPodVars(conn, projectConfig, mrs.Spec.LogLevel)
+		// The delete path only needs the StatefulSet name, so it skips the credential read.
+		var credentialHash string
+		if !deleteSts {
+			credentialHash, err = create.AgentCredentialHash(ctx, secretMemberClient, mrs.Namespace, mconstruct.MultiClusterAgentSettingsSource(*mrs, &stsOverride), podVars.BaseURL, podVars.ProjectID)
+			if err != nil {
+				return create.AgentCredentialStatus(err, fmt.Sprintf("failed to prepare StatefulSet in cluster: %s", item.ClusterName))
+			}
+		}
+
+		vaultInjectsAgentAPIKey := secretMemberClient.VaultClient != nil
+
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
 			mconstruct.WithAgentHostnameOverride(construct.AgentHostnameOverride(mrs.Spec.GetExternalDomainForMemberCluster(item.ClusterName), true, mrs.Namespace, mrs.Spec.GetClusterDomain())),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
-			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
+			PodEnvVars(podVars),
+			WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
+			WithAgentCredentialHash(credentialHash),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			AgentCertHash(agentCertHash),
@@ -819,11 +849,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
-		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
-		}
-
 		if deleteSts {
 			sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 			if err := memberClient.Delete(ctx, &sts); err != nil && !apiErrors.IsNotFound(err) {
@@ -833,15 +858,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		stsOptions := opts(*mrs)
-		if err := create.SetAgentCredential(ctx, secretMemberClient, mrs.Namespace, &stsOptions); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
-		}
 		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
 		}
 		mcNN := types.NamespacedName{Name: mrs.Name, Namespace: mrs.Namespace}
-		if secretName := construct.AgentAPIKeySecretName(sts); secretName != "" {
+		if secretName := construct.MountedAgentAPIKeySecretName(sts); secretName != "" {
 			r.resourceWatcher.RegisterWatchedMongodbResources(mcNN, construct.AgentSettingsConfigMapName(sts), secretName)
 		}
 
@@ -1388,8 +1410,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &eventHandler, predicate.Funcs{
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMultiCluster)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMultiCluster)
@@ -1487,16 +1508,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runt
 
 // cleanOpsManagerState removes the project configuration (processes, auth settings etc.) from the corresponding OM project.
 func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.client, r.SecretClient, &mrs, r.omConnectionFactory, log)
 	if err != nil {
 		return err
+	}
+	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", mrs.Name)
+		return nil
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", mrs.Spec)
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
-	if err != nil {
-		return err
-	}
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(ctx,
@@ -1518,6 +1539,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	// This ensures we attempt all cleanup operations even if some fail.
 	var errs error
 
+	// Stop the backup only when the user requested termination on deletion.
+	// Otherwise keep the backup. Ops Manager can reject a host removal with
+	// CANNOT_DELETE_HOST_BACKUP_ENABLED while the backup is enabled. Tolerating
+	// that rejection lets the finalizer complete. The rejected host stays in
+	// Ops Manager to anchor the backup.
+	if mrs.Spec.Backup != nil && mrs.Spec.Backup.AutoTerminateOnDeletion {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, mrs.Name, backup.ReplicaSetType, log); err != nil {
+			errs = errors.Join(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
+		}
+	}
+
+	keepBackup := mrs.Spec.Backup != nil && !mrs.Spec.Backup.AutoTerminateOnDeletion
 	hostsToRemove, err := mrs.GetMultiClusterAgentHostnames()
 	if err != nil {
 		errs = errors.Join(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
@@ -1525,7 +1558,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 
 	if len(hostsToRemove) > 0 {
 		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
-		if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+		maxRemainingHosts := 0
+		if keepBackup {
+			maxRemainingHosts = 1
+		}
+		if err := host.StopMonitoring(ctx, conn, hostsToRemove, maxRemainingHosts, log); err != nil {
 			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 			errs = errors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 		}

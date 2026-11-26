@@ -6,10 +6,12 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -626,6 +629,138 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
 }
 
+func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+
+	api.CurrMockedAdmin = api.NewMockedAdminProvider(testOm.CentralURL(), "jane.doe@g.com", "jane.doe@g.com-key", true).(*api.MockedOmAdmin)
+	api.CurrMockedAdmin.LicenseInstallErr = assert.AnError
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, client.Create(ctx, &licenseSecret))
+	configureBackupResources(ctx, client, testOm)
+
+	var result reconcile.Result
+	for range 5 {
+		var err error
+		result, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+		if result.RequeueAfter == 10*time.Second {
+			break
+		}
+	}
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	backupStatefulSet := &appsv1.StatefulSet{}
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), backupStatefulSet))
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
+	require.NotNil(t, licenseCondition)
+	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
+	assert.Equal(t, status.ReasonLicenseFailed, licenseCondition.Reason)
+}
+
+func TestOpsManagerReleaseWithoutTheLicenseSecretIsReportedOnce(t *testing.T) {
+	ctx := context.Background()
+	testOm, reconciler, kubeClient := newLicensedOpsManager(ctx, t)
+
+	require.NoError(t, kubeClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: testOm.Namespace, Name: "om-license"}}))
+	testOm.Spec.License.SecretRef = nil
+	require.NoError(t, kubeClient.Update(ctx, testOm))
+
+	// The operator can't identify the license it installed, so it reports that and stops tracking it.
+	result, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
+	require.NoError(t, err)
+	assert.Empty(t, lastInstallSecretRef)
+
+	// The requeued reconcile succeeds without releasing anything, and Ops Manager keeps the license.
+	result, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseNotProvided)
+	assert.NotContains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+	assert.Empty(t, api.CurrMockedAdmin.ReleasedIDs)
+}
+
+func TestOpsManagerDeletionWithoutTheLicenseSecretWaitsForIt(t *testing.T) {
+	ctx := context.Background()
+	testOm, reconciler, kubeClient := newLicensedOpsManager(ctx, t)
+
+	licenseSecret := licenseSecretFor(testOm, "om-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"))
+	require.NoError(t, kubeClient.Delete(ctx, &licenseSecret))
+	require.NoError(t, kubeClient.Delete(ctx, testOm))
+
+	// Without the Secret the operator can't identify the license, so the finalizer holds the deletion.
+	for range 2 {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+		assert.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+		assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
+	}
+	assert.Empty(t, api.CurrMockedAdmin.ReleasedIDs)
+
+	// Restoring the Secret lets the operator release the license and finish the deletion.
+	licenseSecret.ResourceVersion = ""
+	require.NoError(t, kubeClient.Create(ctx, &licenseSecret))
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"art-1"}, api.CurrMockedAdmin.ReleasedIDs)
+	err = kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm)
+	assert.True(t, apiErrors.IsNotFound(err))
+}
+
+// newLicensedOpsManager reconciles an Ops Manager until it holds the license from the om-license Secret.
+func newLicensedOpsManager(ctx context.Context, t *testing.T) (*omv1.MongoDBOpsManager, *OpsManagerReconciler, kubernetesClient.Client) {
+	t.Helper()
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"))
+
+	api.CurrMockedAdmin = api.NewMockedAdminProvider(testOm.CentralURL(), "jane.doe@g.com", "jane.doe@g.com-key", true).(*api.MockedOmAdmin)
+	api.CurrMockedAdmin.LicenseState = licensedView("LICENSED")
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &licenseSecret))
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, kubeClient)
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseManaged)
+	require.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
+	require.NoError(t, err)
+	require.Equal(t, "om-license", lastInstallSecretRef)
+	return testOm, reconciler, kubeClient
+}
+
+func assertOperatorManagedLicense(t *testing.T, opsManager *omv1.MongoDBOpsManager, reason string) {
+	t.Helper()
+	condition := meta.FindStatusCondition(opsManager.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
+	require.NotNil(t, condition)
+	assert.Equal(t, reason, condition.Reason)
+}
+
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -776,7 +911,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 2)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 }
 
@@ -1153,6 +1288,109 @@ func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
 	assert.Equal(t, "COMPLIANCE", *s3Configs[0].ObjectRetentionMode)
 }
 
+func TestOpsManagerBackupBucketDerivedObjectLockFields(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{
+			Name:                  "snapshot",
+			S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+			ObjectLockEnabled:     new(true),
+			ObjectRetentionDays:   new(30),
+			ObjectRetentionMode:   new("GOVERNANCE"),
+			PortableBackupEnabled: new(true),
+		}).
+		Build()
+	testOm.Spec.Backup.S3OplogStoreConfigs = []omv1.S3Config{{
+		Name:                  "oplog",
+		S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+		ObjectLockEnabled:     new(true),
+		ObjectRetentionDays:   new(30),
+		ObjectRetentionMode:   new("GOVERNANCE"),
+		PortableBackupEnabled: new(true),
+	}}
+
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+	status := reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
+	require.True(t, status.IsOK())
+
+	snapshotConfigs, err := mockedAdmin.ReadS3Configs(ctx)
+	require.NoError(t, err)
+	require.Len(t, snapshotConfigs, 1)
+	assert.Nil(t, snapshotConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), snapshotConfigs[0].PortableBackupEnabled)
+
+	oplogConfigs, err := mockedAdmin.ReadS3OplogStoreConfigs(ctx)
+	require.NoError(t, err)
+	require.Len(t, oplogConfigs, 1)
+	assert.Nil(t, oplogConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), oplogConfigs[0].PortableBackupEnabled)
+}
+
+func TestOpsManagerBackupDeprecatedObjectLockWarningIsPersisted(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true)}).
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, mockedClient, testOm)
+
+	// the first reconcile is requeued to configure AppDB monitoring
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	require.NoError(t, mockedClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assert.Equal(t, status.PhaseRunning, testOm.Status.BackupStatus.Phase)
+	require.Len(t, testOm.Status.BackupStatus.Warnings, 1)
+	assert.Contains(t, string(testOm.Status.BackupStatus.Warnings[0]), "s3Stores/s3-config")
+}
+
+func TestValidatePortableBackupUpdate(t *testing.T) {
+	tests := []struct {
+		name    string
+		current *bool
+		desired *bool
+		wantErr bool
+	}{
+		{name: "disable enabled portable backups", current: new(true), desired: new(false), wantErr: true},
+		{name: "omitted desired value preserves enabled setting", current: new(true)},
+		{name: "no transition from false", current: new(false), desired: new(false)},
+		{name: "no current portable setting", desired: new(false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePortableBackupUpdate(
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.current},
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.desired},
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot be set to false")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
@@ -1175,6 +1413,217 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, architectures.NonStatic, zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
+}
+
+const stuckTerminatingFinalizer = "test.mongodb.com/keep-terminating"
+
+func backupDaemonPod(om *omv1.MongoDBOpsManager, finalizers ...string) *corev1.Pod {
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:       om.BackupDaemonStatefulSetName() + "-0",
+		Namespace:  om.Namespace,
+		Labels:     map[string]string{"app": om.BackupDaemonServiceName()},
+		Finalizers: finalizers,
+	}}
+}
+
+func TestStopBackupDaemonIfNeeded(t *testing.T) {
+	tests := []struct {
+		name                  string
+		statusVersion         string
+		podFinalizers         []string
+		expectedStopped       bool
+		expectedReplicas      int32
+		expectedPodsRemaining int
+	}{
+		{
+			name:                  "version did not change",
+			statusVersion:         "7.0.0",
+			expectedStopped:       true,
+			expectedReplicas:      1,
+			expectedPodsRemaining: 1,
+		},
+		{
+			name:                  "first deployment",
+			statusVersion:         "",
+			expectedStopped:       true,
+			expectedReplicas:      1,
+			expectedPodsRemaining: 1,
+		},
+		{
+			name:             "upgrade stops the daemon",
+			statusVersion:    "6.0.0",
+			expectedStopped:  true,
+			expectedReplicas: 0,
+		},
+		{
+			name:                  "upgrade waits for a terminating daemon pod",
+			statusVersion:         "6.0.0",
+			podFinalizers:         []string{stuckTerminatingFinalizer},
+			expectedStopped:       false,
+			expectedReplicas:      0,
+			expectedPodsRemaining: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetOMStatusVersion(tt.statusVersion).Build()
+			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+
+			require.NoError(t, kubeClient.Create(ctx, &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{Name: testOm.BackupDaemonStatefulSetName(), Namespace: testOm.Namespace},
+				Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(1))},
+			}))
+			require.NoError(t, kubeClient.Create(ctx, backupDaemonPod(testOm, tt.podFinalizers...)))
+
+			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+			require.NoError(t, err)
+
+			stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedStopped, stopped)
+
+			sts := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &sts))
+			assert.Equal(t, tt.expectedReplicas, *sts.Spec.Replicas)
+
+			pods := corev1.PodList{}
+			require.NoError(t, kubeClient.List(ctx, &pods))
+			assert.Len(t, pods.Items, tt.expectedPodsRemaining)
+		})
+	}
+}
+
+// TestStopBackupDaemonIfNeeded_MultiCluster verifies that a Backup Daemon pod stuck terminating in one member cluster
+// does not prevent the Backup Daemon from being stopped in the others.
+func TestStopBackupDaemonIfNeeded_MultiCluster(t *testing.T) {
+	ctx := context.Background()
+	clusterNames := []string{"cluster-a", "cluster-b"}
+	testOm := DefaultOpsManagerBuilder().
+		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{
+			{ClusterName: clusterNames[0], Members: 1},
+			{ClusterName: clusterNames[1], Members: 1},
+		}).
+		SetOMStatusVersion("6.0.0").
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClients := map[string]client.Client{}
+	for _, name := range clusterNames {
+		memberClients[name] = mock.NewEmptyFakeClientBuilder().
+			WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
+			Build()
+	}
+
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
+		WithObjects(testOm.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
+		Build())
+	reconciler := NewOpsManagerReconciler(ctx, centralClient, memberClients, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
+	})
+
+	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, memberClients, zap.S())
+	require.NoError(t, err)
+	require.Len(t, helper.getHealthyMemberClusters(), len(clusterNames))
+
+	// the first cluster is stuck terminating, the second one stops right away
+	for i, memberCluster := range helper.getHealthyMemberClusters() {
+		require.NoError(t, memberCluster.Client.Create(ctx, &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), Namespace: testOm.Namespace},
+			Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(1))},
+		}))
+
+		pod := backupDaemonPod(testOm)
+		pod.Name = helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster) + "-0"
+		pod.Labels = map[string]string{"app": helper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster)}
+		if i == 0 {
+			pod.Finalizers = []string{stuckTerminatingFinalizer}
+		}
+		require.NoError(t, memberCluster.Client.Create(ctx, pod))
+	}
+
+	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
+	require.NoError(t, err)
+	assert.False(t, stopped)
+
+	for i, memberCluster := range helper.getHealthyMemberClusters() {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, memberCluster.Client.Get(ctx, kube.ObjectKey(testOm.Namespace, helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)), &sts))
+		assert.Zero(t, *sts.Spec.Replicas, "Backup Daemon must be scaled down in %s", memberCluster.Name)
+
+		pods := corev1.PodList{}
+		require.NoError(t, memberCluster.Client.List(ctx, &pods, client.InNamespace(testOm.Namespace)))
+		if i == 0 {
+			assert.Len(t, pods.Items, 1, "the pod with a finalizer stays terminating in %s", memberCluster.Name)
+		} else {
+			assert.Empty(t, pods.Items, "Backup Daemon pods must be deleted in %s", memberCluster.Name)
+		}
+	}
+}
+
+func TestStopBackupDaemonIfNeeded_NoBackupDaemon(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetOMStatusVersion("6.0.0").Build()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
+	require.NoError(t, err)
+	assert.True(t, stopped)
+}
+
+func TestOpsManagerUpgrade_StopsBackupDaemonBeforeRollingOpsManager(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().AddS3Config("s3-config", "s3-secret").
+		AddOplogStoreConfig("oplog-store-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, kubeClient, testOm)
+
+	// the first reconcile requeues to configure the AppDB monitoring, the second one completes the deployment
+	for range 2 {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+	}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	require.Equal(t, "7.0.0", testOm.Status.OpsManagerStatus.Version)
+
+	// the finalizer keeps the pod around after it is deleted, as a daemon that is still draining would be
+	require.NoError(t, kubeClient.Create(ctx, backupDaemonPod(testOm, stuckTerminatingFinalizer)))
+	testOm.Spec.Version = "7.0.1"
+	require.NoError(t, kubeClient.Update(ctx, testOm))
+
+	omImage := func() string {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.OpsManagerStatefulSetName()), &sts))
+		return sts.Spec.Template.Spec.Containers[0].Image
+	}
+	backupDaemonImage := func() string {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &sts))
+		return sts.Spec.Template.Spec.Containers[0].Image
+	}
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter)
+	assert.Contains(t, omImage(), "7.0.0", "Ops Manager must not be rolled while the Backup Daemon is still stopping")
+
+	daemonPod := &corev1.Pod{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(backupDaemonPod(testOm)), daemonPod))
+	assert.NotNil(t, daemonPod.DeletionTimestamp)
+
+	daemonPod.Finalizers = nil
+	require.NoError(t, kubeClient.Update(ctx, daemonPod))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Contains(t, omImage(), "7.0.1")
+	assert.Contains(t, backupDaemonImage(), "7.0.1")
 }
 
 func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {

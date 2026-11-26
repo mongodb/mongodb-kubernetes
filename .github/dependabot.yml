@@ -60,6 +60,10 @@ updates:
        - dependency-name: chardet
          update-types:
            - version-update:semver-major
+      # needed to avoid breaking dependency requirements for python-dateutil with botocore (python-dateutil>=2.1,<3.0.0)
+       - dependency-name: python-dateutil
+         update-types:
+           - version-update:semver-major
     labels:
       - dependencies
       - python

@@ -14,17 +14,22 @@ func init() {
 }
 
 // VoyageAIModel defines the supported VoyageAI model types.
-// +kubebuilder:validation:Enum=voyage-4-large;voyage-4;voyage-4-lite;rerank-2.5;rerank-2.5-lite;voyage-context-4;voyage-code-3
+// +kubebuilder:validation:Enum=voyage-4-large;voyage-4;voyage-4-lite;rerank-2.5;rerank-2.5-lite;rerank-3;rerank-3-lite;rerank-3-pubsec;voyage-context-4;voyage-code-3;voyage-code-4;voyage-multimodal-3.5
 type VoyageAIModel string
 
 const (
-	VoyageAIModelVoyage4Large   VoyageAIModel = "voyage-4-large"
-	VoyageAIModelVoyage4        VoyageAIModel = "voyage-4"
-	VoyageAIModelVoyage4Lite    VoyageAIModel = "voyage-4-lite"
-	VoyageAIModelRerank25       VoyageAIModel = "rerank-2.5"
-	VoyageAIModelRerank25Lite   VoyageAIModel = "rerank-2.5-lite"
-	VoyageAIModelVoyageContext4 VoyageAIModel = "voyage-context-4"
-	VoyageAIModelVoyageCode3    VoyageAIModel = "voyage-code-3"
+	VoyageAIModelVoyage4Large       VoyageAIModel = "voyage-4-large"
+	VoyageAIModelVoyage4            VoyageAIModel = "voyage-4"
+	VoyageAIModelVoyage4Lite        VoyageAIModel = "voyage-4-lite"
+	VoyageAIModelRerank25           VoyageAIModel = "rerank-2.5"
+	VoyageAIModelRerank25Lite       VoyageAIModel = "rerank-2.5-lite"
+	VoyageAIModelRerank3            VoyageAIModel = "rerank-3"
+	VoyageAIModelRerank3Lite        VoyageAIModel = "rerank-3-lite"
+	VoyageAIModelRerank3PubSec      VoyageAIModel = "rerank-3-pubsec"
+	VoyageAIModelVoyageContext4     VoyageAIModel = "voyage-context-4"
+	VoyageAIModelVoyageCode3        VoyageAIModel = "voyage-code-3"
+	VoyageAIModelVoyageCode4        VoyageAIModel = "voyage-code-4"
+	VoyageAIModelVoyageMultimodal35 VoyageAIModel = "voyage-multimodal-3.5"
 )
 
 // +k8s:deepcopy-gen=true

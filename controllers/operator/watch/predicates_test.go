@@ -3,6 +3,7 @@ package watch
 import (
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -82,6 +83,13 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		newOm.Spec.Replicas = 2
 		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
+	t.Run("Reconciliation happens for MongoDBOpsManager when license secretRef is removed", func(t *testing.T) {
+		oldOm := omv1.NewOpsManagerBuilder().Build()
+		oldOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+		newOm := oldOm.DeepCopy()
+		newOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
+	})
 	t.Run("No reconciliation for MongoDBOpsManager with ExternalAppDBRef when vault backend and nothing meaningful changed", func(t *testing.T) {
 		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
 		oldOm := omv1.NewOpsManagerBuilder().Build()
@@ -136,6 +144,16 @@ func TestPredicatesForMongoDB(t *testing.T) {
 		newMdb := oldMdb.DeepCopy()
 		newMdb.Spec.Version = "4.2.0"
 		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Update(
+			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
+		)
+	})
+	t.Run("Vault deletion update is handled", func(t *testing.T) {
+		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
+		oldMdb := mdbv1.NewReplicaSetBuilder().Build()
+		newMdb := oldMdb.DeepCopy()
+		deletionTimestamp := metav1.NewTime(time.Now())
+		newMdb.DeletionTimestamp = &deletionTimestamp
+		assert.True(t, PredicatesForMongoDB(mdbv1.ReplicaSet).Update(
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
