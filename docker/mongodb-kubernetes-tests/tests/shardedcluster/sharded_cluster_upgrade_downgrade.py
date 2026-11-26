@@ -75,6 +75,7 @@ class TestShardedClusterUpgradeDowngradeUpdate:
         sc["spec"]["featureCompatibilityVersion"] = fcv
         sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=2400)
+        assert sc.get_status_fcv() == fcv
 
     def test_db_connectable(self, mongod_tester: MongoTester, custom_mdb_version: str):
         mongod_tester.assert_connectivity()
