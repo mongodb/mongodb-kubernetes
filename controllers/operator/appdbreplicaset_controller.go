@@ -1330,6 +1330,9 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 	if !rs.IsSecurityTLSConfigEnabled() {
 		return workflow.OK()
 	}
+	if status := r.seedManagedPEMSecretsFromLegacy(ctx, om, log); !status.IsOK() {
+		return status
+	}
 	secretName := rs.Security.MemberCertificateSecretName(rs.Name())
 
 	needToCreatePEM := false
@@ -1394,6 +1397,65 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 	}
 
 	return workflow.OK()
+}
+
+// seedManagedPEMSecretsFromLegacy keeps the legacy AppDB certificate in the managed -pem Secret
+// during a migration. The StatefulSet is rolled onto the managed Secret before the automation
+// config is updated, so the file the old config names has to still be there. It uses the same
+// seeding entry point as the MongoDB resources; a SCRAM AppDB only has the member certificate, so
+// the clusterfile and agent seeds are no-ops. There is no subject validation like
+// certs.VerifyMigrationSubjects: an OM HTTPS certificate and a SCRAM AppDB carry no peer identity.
+func (r *ReconcileAppDbReplicaSet) seedManagedPEMSecretsFromLegacy(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
+	appDB := opsManager.Spec.AppDB
+	if appDB == nil || opsManager.Spec.ExternalAppDBRef != nil {
+		return workflow.OK()
+	}
+	currentSecurity := appDB.GetSecurity()
+	if !currentSecurity.IsManagedCertificateEnabled() {
+		return workflow.OK()
+	}
+
+	lastSpec, err := opsManager.GetLastSpec()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to decode the %s annotation: %w", util.LastAchievedSpec, err))
+	}
+	if lastSpec == nil || lastSpec.AppDB == nil {
+		return workflow.OK()
+	}
+
+	lastSecurity := lastSpec.AppDB.GetSecurity()
+	if !mdbv1.IsMigratingToManagedCertificate(lastSecurity, currentSecurity) {
+		return workflow.OK()
+	}
+
+	legacyMemberSecretName := lastSecurity.MemberCertificateSecretName(lastSpec.AppDB.Name())
+	managedMemberSecretName := currentSecurity.MemberCertificateSecretName(appDB.Name())
+	validate := r.appDBMigrationSeedValidator(ctx, opsManager)
+	var errs error
+	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+		if err := certs.SeedManagedPEMSecretFromLegacy(ctx, memberCluster.SecretClient, opsManager.Namespace, legacyMemberSecretName, managedMemberSecretName, nil, certs.AppDB, validate, log); err != nil {
+			errs = errors.Join(errs, xerrors.Errorf("failed to seed the managed AppDB -pem secret from %s in cluster %s: %w", legacyMemberSecretName, memberCluster.Name, err))
+		}
+	}
+	if errs != nil {
+		return workflow.Failed(errs)
+	}
+	return workflow.OK()
+}
+
+func (r *ReconcileAppDbReplicaSet) appDBMigrationSeedValidator(ctx context.Context, opsManager *omv1.MongoDBOpsManager) certs.SeedPEMValidator {
+	return func(pemSecretName, certificate string) error {
+		status := certs.VerifyManagedCertificateMigrationTrust(ctx, r.client, opsManager.Namespace, certs.MigrationTrustCheck{
+			Component:                   "AppDB",
+			LegacyCertificateSecretName: pemSecretName,
+			LegacyPEM:                   certificate,
+			ManagedCABundleName:         opsManager.Spec.AppDB.GetCAConfigMapName(),
+		})
+		if !status.IsOK() {
+			return xerrors.Errorf("the AppDB migration cannot carry the certificate from %s: %s", pemSecretName, status.Message())
+		}
+		return nil
+	}
 }
 
 func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {

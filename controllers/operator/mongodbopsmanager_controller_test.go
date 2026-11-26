@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -72,6 +73,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	tlspkg "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -4683,4 +4685,809 @@ func TestOpsManagerStatefulSetsRollOnAppDBCABundleChange(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, hash, backupSts.Spec.Template.Annotations[operatorConstruct.AppDBCABundleHashAnnotation])
 	}
+}
+
+// TestOpsManagerManagedCertificateMigrationCheckpoint pins when the last-successful-spec annotation
+// is written during a legacy-to-managed migration: pending certificate work must leave it alone, and
+// a successful reconciliation must store both operator-managed security blocks.
+func TestOpsManagerManagedCertificateMigrationCheckpoint(t *testing.T) {
+	ctx := t.Context()
+	opsManager := newManagedCertificateTestOM()
+	opsManager.Spec.Backup.Enabled = false
+	opsManager.Spec.Backup.ManagedCertificate = nil
+	opsManager.Spec.AppDB.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	opsManager.Spec.AppDB.Members = 3
+	opsManager.Status.AppDbStatus.Members = 3
+
+	// A successful legacy reconciliation left a baseline behind; a TLS-off baseline keeps this test
+	// focused on the checkpoint rather than on the AppDB certificate seeding.
+	legacyBaseline, err := json.Marshal(omv1.MongoDBOpsManagerSpec{
+		Version:  opsManager.Spec.Version,
+		Replicas: 1,
+		AppDB: &omv1.AppDBSpec{
+			Version:  opsManager.Spec.AppDB.Version,
+			Members:  3,
+			Security: &mdbv1.Security{Authentication: opsManager.Spec.AppDB.Security.Authentication},
+		},
+	})
+	require.NoError(t, err)
+	opsManager.Annotations = map[string]string{util.LastAchievedSpec: string(legacyBaseline)}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
+
+	adminSecret := secret.Builder().
+		SetName(opsManager.Spec.AdminSecret).
+		SetNamespace(opsManager.Namespace).
+		SetStringMapToData(map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}).
+		SetLabels(map[string]string{}).
+		SetOwnerReferences(kube.BaseOwnerReference(opsManager)).
+		Build()
+	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t, skipChecks: true}
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, images.ImageUrls{}, "", "", architectures.NonStatic, "",
+		omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+			return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
+		})
+	reconciler.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	require.NoError(t, reconciler.client.CreateSecret(ctx, adminSecret))
+
+	// Pending: the certificates are not issued yet, so the reconciliation stops before the
+	// success-only checkpoint and the resource has no baseline.
+	_, err = reconciler.Reconcile(ctx, requestFromObject(opsManager))
+	require.NoError(t, err)
+	pending := getPersistedManagedCertificateOM(t, ctx, kubeClient, opsManager)
+	assert.Equal(t, string(legacyBaseline), pending.Annotations[util.LastAchievedSpec],
+		"a pending reconciliation must leave the last successful baseline unchanged")
+
+	// Issue every certificate and let the consumers mount the managed material.
+	markManagedCertificatesReadyForMigration(t, ctx, kubeClient)
+	createSecretsForManagedCertificates(t, ctx, kubeClient)
+	issueAppDBManagedCertificate(t, ctx, kubeClient, opsManager)
+
+	omCA, issueOM := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	omCRT, omKey := issueOM()
+	omTLS := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.TLSCertificateSecretName()), omTLS))
+	omTLS.Type = corev1.SecretTypeTLS
+	omTLS.Data = map[string][]byte{"tls.crt": omCRT, "tls.key": omKey}
+	require.NoError(t, kubeClient.Update(ctx, omTLS))
+
+	// The placeholder secrets have to carry real PEM material before the CA bundles are published.
+	omCASecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Name+"-managed-om-server-ca"), omCASecret))
+	omCASecret.Data = map[string][]byte{"tls.crt": omCA, "ca.crt": omCA}
+	require.NoError(t, kubeClient.Update(ctx, omCASecret))
+
+	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, opsManager, nil, zap.S())
+	require.NoError(t, err)
+	_, blocked, err := reconciler.prepareManagedCertificates(ctx, opsManager, helper, zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+
+	// The first pass creates the workloads and may requeue for monitoring; the second reaches the
+	// success checkpoint.
+	_, err = reconciler.Reconcile(ctx, requestFromObject(opsManager))
+	require.NoError(t, err)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(opsManager))
+	require.NoError(t, err)
+
+	succeeded := getPersistedManagedCertificateOM(t, ctx, kubeClient, opsManager)
+	require.Contains(t, succeeded.Annotations, util.LastAchievedSpec,
+		"a successful reconciliation must checkpoint the applied spec")
+	last, err := succeeded.GetLastSpec()
+	require.NoError(t, err)
+	require.NotNil(t, last)
+	require.NotNil(t, last.Security)
+	require.NotNil(t, last.Security.ManagedCertificate, "the checkpoint must store the managed Ops Manager security block")
+	require.NotNil(t, last.AppDB)
+	require.NotNil(t, last.AppDB.Security)
+	require.NotNil(t, last.AppDB.Security.ManagedCertificate, "the checkpoint must store the managed AppDB security block")
+}
+
+const (
+	migrationTrustLegacyOMCertificate = "managed-om-legacy-cert"
+	migrationTrustLegacyOMCA          = "managed-om-legacy-ca"
+	migrationTrustLegacyAppDBCert     = "appdb-managed-om-db-cert"
+	migrationTrustLegacyAppDBCA       = "managed-om-legacy-appdb-ca"
+)
+
+// managedOMTrustMigrationSecurity is an Ops Manager security block that uses operator-managed
+// certificates through a user issuer, so tests control the managed CA from the issued Secret.
+func managedOMTrustMigrationSecurity(additional []mdbv1.CARef) *omv1.MongoDBOpsManagerSecurity {
+	return &omv1.MongoDBOpsManagerSecurity{
+		ManagedCertificate: &omv1.ManagedCertificate{
+			CertificateConfig: mdbv1.CertificateConfig{
+				IssuerRef:            &mdbv1.IssuerRef{Name: "om-managed-issuer", Kind: "Issuer"},
+				AdditionalTrustedCAs: additional,
+			},
+		},
+	}
+}
+
+// newOMTrustMigrationFixture starts an OM HTTPS migration with a successful legacy spec
+// checkpoint. It leaves the resource after the issuance pass, so the caller can provide the
+// managed leaf and the legacy material before the preparation runs again and the trust check is
+// reached. A nil lastSecurity keeps the resource out of a migration.
+func newOMTrustMigrationFixture(t *testing.T, lastSecurity *omv1.MongoDBOpsManagerSecurity, managedSecurity *omv1.MongoDBOpsManagerSecurity) (context.Context, *omv1.MongoDBOpsManager, kubernetesClient.Client, *OpsManagerReconciler, string) {
+	t.Helper()
+	ctx := t.Context()
+	om := newManagedCertificateTestOM()
+	om.Spec.Backup.Enabled = false
+	om.Spec.Backup.ManagedCertificate = nil
+	om.Spec.AppDB.Security.ManagedCertificate = nil
+	if managedSecurity == nil {
+		managedSecurity = managedOMTrustMigrationSecurity(nil)
+	}
+	om.Spec.Security = managedSecurity
+	if lastSecurity != nil {
+		lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{
+			Version:  om.Spec.Version,
+			Replicas: om.Spec.Replicas,
+			Security: lastSecurity,
+		})
+		require.NoError(t, err)
+		om.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+	}
+
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked, "the first pass has to wait for cert-manager issuance")
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	return ctx, om, c, r, om.Annotations[util.LastAchievedSpec]
+}
+
+// writeMigrationManagedLeaf replaces the issued Secret with a real leaf so preparation can
+// inspect the certificate and its CA.
+func writeMigrationManagedLeaf(t *testing.T, ctx context.Context, c kubernetesClient.Client, secretName string, caPEM, crt, key []byte) {
+	t.Helper()
+	s := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(mock.TestNamespace, secretName), s))
+	s.Type = corev1.SecretTypeTLS
+	s.Data = map[string][]byte{corev1.TLSCertKey: crt, corev1.TLSPrivateKeyKey: key, corev1.ServiceAccountRootCAKey: caPEM}
+	require.NoError(t, c.Update(ctx, s))
+}
+
+func writeMigrationSecret(t *testing.T, ctx context.Context, c kubernetesClient.Client, name string, data map[string][]byte) {
+	t.Helper()
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+		Data:       data,
+	}))
+}
+
+// writeMigrationTLSCertificate writes the kubernetes.io/tls form the construction reads through
+// tls.crt.
+func writeMigrationTLSCertificate(t *testing.T, ctx context.Context, c kubernetesClient.Client, name string, cert []byte) {
+	t.Helper()
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data:       map[string][]byte{corev1.TLSCertKey: cert},
+	}))
+}
+
+// writeMigrationLegacyPEM writes the derived -pem Secret a legacy deployment uses. Its active
+// certificate file is the material the workload actually serves and the seeder retains.
+func writeMigrationLegacyPEM(t *testing.T, ctx context.Context, c kubernetesClient.Client, baseName string, cert []byte) {
+	t.Helper()
+	const hash = "legacy-hash"
+	writeMigrationSecret(t, ctx, c, baseName+certspkg.OperatorGeneratedCertSuffix, map[string][]byte{
+		util.LatestHashSecretKey: []byte(hash),
+		hash:                     cert,
+	})
+}
+
+func writeMigrationCAConfigMap(t *testing.T, ctx context.Context, c kubernetesClient.Client, name, key string, caPEM []byte) {
+	t.Helper()
+	require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+		Data:       map[string]string{key: string(caPEM)},
+	}))
+}
+
+func migrationServerCertificate(t *testing.T, issue func() ([]byte, []byte)) []byte {
+	t.Helper()
+	crt, _ := issue()
+	require.NotEmpty(t, crt)
+	return crt
+}
+
+func writeMigrationManagedLeafFromIssue(t *testing.T, ctx context.Context, c kubernetesClient.Client, secretName string, caPEM []byte, issue func() ([]byte, []byte)) {
+	t.Helper()
+	crt, key := issue()
+	require.NotEmpty(t, caPEM)
+	require.NotEmpty(t, crt)
+	writeMigrationManagedLeaf(t, ctx, c, secretName, caPEM, crt, key)
+}
+
+// TestOpsManagerManagedCertificateMigrationTrustOM covers the Ops Manager HTTPS preflight.
+// The guard runs in the managed preparation path after issuance and before any workload is
+// reconciled, so the tests stop at prepareManagedCertificates.
+func TestOpsManagerManagedCertificateMigrationTrustOM(t *testing.T) {
+	legacySecurity := func() *omv1.MongoDBOpsManagerSecurity {
+		return &omv1.MongoDBOpsManagerSecurity{
+			TLS: omv1.MongoDBOpsManagerTLS{
+				SecretRef: omv1.TLSSecretRef{Name: migrationTrustLegacyOMCertificate},
+				CA:        migrationTrustLegacyOMCA,
+			},
+		}
+	}
+	managedBundle := "managed-om-managed-om-ca-bundle"
+
+	t.Run("the same CA passes", func(t *testing.T) {
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, "managed-om-svc.my-namespace.svc.cluster.local")
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issue))
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, ca)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked, "a migration that keeps the CA must pass")
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
+	})
+
+	t.Run("a managed bundle missing the legacy signer blocks Ops Manager", func(t *testing.T) {
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
+		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issueLegacy))
+		// The old trust bundle already recognises the managed signer, isolating the managed bundle.
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, append(append([]byte{}, managedCA...), legacyCA...))
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "a managed bundle that only trusts the new CA has to block the migration")
+		persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
+		assert.Equal(t, status.PhaseFailed, persisted.Status.OpsManagerStatus.Phase)
+		assert.Equal(t, baseline, persisted.Annotations[util.LastAchievedSpec], "the failed preflight must keep the successful-spec checkpoint")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, "Ops Manager")
+		assert.Contains(t, condition.Message, managedBundle)
+		assert.Contains(t, condition.Message, migrationTrustLegacyOMCertificate)
+		assert.Contains(t, condition.Message, `"key": "mms-ca.crt"`, "the example has to use the Ops Manager CA file name")
+	})
+
+	t.Run("an older bundle entry that the active hash does not reference does not count as configured trust", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
+		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issueLegacy))
+		// An old entry is still in the ConfigMap, but neither the active hash nor the previous
+		// hash that the workload selects references it.
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, append(append([]byte{}, managedCA...), legacyCA...))
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: managedBundle, Namespace: mock.TestNamespace},
+			Data: map[string]string{
+				util.LatestHashSecretKey: "active",
+				"active":                 string(managedCA),
+				"stale":                  string(legacyCA),
+			},
+		}))
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "an unreferenced older bundle entry must not satisfy the active trust check")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, managedBundle)
+	})
+
+	t.Run("a different CA passes when additionalTrustedCAs keeps the legacy signer", func(t *testing.T) {
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		om.Spec.Security = managedOMTrustMigrationSecurity([]mdbv1.CARef{{Name: "legacy-signer-ca", Kind: "ConfigMap", Key: util.CaCertMMS}})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
+		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issueLegacy))
+		// The legacy ConfigMap trusts only the old signer. additionalTrustedCAs puts that signer
+		// in the managed bundle; the legacy CA does not have to trust the new issuer.
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, legacyCA)
+		writeMigrationCAConfigMap(t, ctx, c, "legacy-signer-ca", util.CaCertMMS, legacyCA)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked, "a different CA passes when the managed bundle keeps the legacy signer")
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
+	})
+
+	t.Run("overlapping configured trust passes", func(t *testing.T) {
+		prepareOverlappingOMTrustFixture(t)
+	})
+
+	t.Run("a raw server.pem legacy Secret is parsed", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		managedCRT, managedKey := issue()
+		writeMigrationManagedLeaf(t, ctx, c, om.TLSCertificateSecretName(), ca, managedCRT, managedKey)
+		legacyCRT, legacyKey := issue()
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyOMCertificate, map[string][]byte{"server.pem": append(append([]byte{}, legacyCRT...), legacyKey...)})
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, ca)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked, "the raw OM server.pem form has to be read like tls.crt")
+	})
+
+	t.Run("a raw Opaque OM Secret uses server.pem even when tls.crt is present", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, append(append([]byte{}, managedCA...), legacyCA...))
+		// The Opaque form is mounted as server.pem. tls.crt is not used by the pod, so a
+		// conflicting trusted tls.crt must not hide an untrusted server.pem.
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyOMCertificate, map[string][]byte{
+			corev1.TLSCertKey: migrationServerCertificate(t, issueManaged),
+			"server.pem":      migrationServerCertificate(t, issueLegacy),
+		})
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "an Opaque legacy Secret has to be checked through server.pem")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, migrationTrustLegacyOMCertificate)
+	})
+
+	t.Run("missing legacy certificate material blocks Ops Manager", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, ca)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "a detected migration without the legacy certificate cannot pass")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, migrationTrustLegacyOMCertificate)
+	})
+
+	t.Run("missing legacy CA material blocks Ops Manager", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, legacySecurity(), nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issue))
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, "wrong-key", ca)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "a detected migration without the legacy CA cannot pass")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, migrationTrustLegacyOMCA)
+	})
+}
+
+// prepareOverlappingOMTrustFixture builds the passing case of two CAs that are each trusted by
+// both bundles: the managed bundle trusts the legacy signer through additionalTrustedCAs, and the
+// legacy bundle already trusts the managed signer.
+func prepareOverlappingOMTrustFixture(t *testing.T) (context.Context, *omv1.MongoDBOpsManager, kubernetesClient.Client, *OpsManagerReconciler) {
+	t.Helper()
+	ctx := t.Context()
+	managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	legacySecurity := &omv1.MongoDBOpsManagerSecurity{TLS: omv1.MongoDBOpsManagerTLS{SecretRef: omv1.TLSSecretRef{Name: migrationTrustLegacyOMCertificate}, CA: migrationTrustLegacyOMCA}}
+	om := newManagedCertificateTestOM()
+	om.Spec.Backup.Enabled = false
+	om.Spec.Backup.ManagedCertificate = nil
+	om.Spec.AppDB.Security.ManagedCertificate = nil
+	om.Spec.Security = managedOMTrustMigrationSecurity([]mdbv1.CARef{{Name: "legacy-signer-ca", Kind: "ConfigMap", Key: util.CaCertMMS}})
+	lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{Version: om.Spec.Version, Replicas: om.Spec.Replicas, Security: legacySecurity})
+	require.NoError(t, err)
+	om.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
+	writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issueLegacy))
+	writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, append(append([]byte{}, managedCA...), legacyCA...))
+	writeMigrationCAConfigMap(t, ctx, c, "legacy-signer-ca", util.CaCertMMS, legacyCA)
+
+	_, blocked, err = r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked, "each bundle trusting the other signer has to pass")
+	return ctx, om, c, r
+}
+
+// TestOpsManagerManagedCertificateMigrationTrustAppDB covers the internal single-cluster AppDB
+// preflight and the component it reports on failure.
+func TestOpsManagerManagedCertificateMigrationTrustAppDB(t *testing.T) {
+	managedBundle := "managed-om-db-managed-server-ca-bundle"
+	lastAppDBSecurity := func(om *omv1.MongoDBOpsManager) *mdbv1.Security {
+		return &mdbv1.Security{
+			Authentication:            om.Spec.AppDB.GetSecurity().Authentication,
+			CertificatesSecretsPrefix: "appdb",
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: migrationTrustLegacyAppDBCA},
+		}
+	}
+
+	t.Run("the same CA passes", func(t *testing.T) {
+		ctx, om, c, r, _ := newAppDBTrustMigrationFixture(t, lastAppDBSecurity)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()), ca, issue)
+		legacyLeaf := migrationServerCertificate(t, issue)
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyAppDBCert, map[string][]byte{corev1.TLSCertKey: legacyLeaf})
+		writeMigrationLegacyPEM(t, ctx, c, migrationTrustLegacyAppDBCert, legacyLeaf)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", ca)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+	})
+
+	t.Run("a managed bundle missing the legacy signer blocks AppDB", func(t *testing.T) {
+		ctx, om, c, r, baseline := newAppDBTrustMigrationFixture(t, lastAppDBSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()), managedCA, issueManaged)
+		legacyLeaf := migrationServerCertificate(t, issueLegacy)
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyAppDBCert, map[string][]byte{corev1.TLSCertKey: legacyLeaf})
+		writeMigrationLegacyPEM(t, ctx, c, migrationTrustLegacyAppDBCert, legacyLeaf)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", append(append([]byte{}, managedCA...), legacyCA...))
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked)
+		persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
+		assert.Equal(t, status.PhaseFailed, persisted.Status.AppDbStatus.Phase)
+		assert.Equal(t, baseline, persisted.Annotations[util.LastAchievedSpec])
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, "AppDB")
+		assert.Contains(t, condition.Message, managedBundle)
+	})
+
+	t.Run("a different CA passes when additionalTrustedCAs keeps the legacy signer", func(t *testing.T) {
+		ctx, om, c, r, baseline := newAppDBTrustMigrationFixture(t, lastAppDBSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		om.Spec.AppDB.Security.ManagedCertificate.Server.AdditionalTrustedCAs = []mdbv1.CARef{{Name: "appdb-legacy-signer-ca", Kind: "ConfigMap", Key: "ca-pem"}}
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()), managedCA, issueManaged)
+		legacyLeaf := migrationServerCertificate(t, issueLegacy)
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyAppDBCert, map[string][]byte{corev1.TLSCertKey: legacyLeaf})
+		writeMigrationLegacyPEM(t, ctx, c, migrationTrustLegacyAppDBCert, legacyLeaf)
+		// The legacy ConfigMap trusts only the old signer. additionalTrustedCAs puts that signer
+		// in the managed bundle; the legacy CA does not have to trust the new issuer.
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		writeMigrationCAConfigMap(t, ctx, c, "appdb-legacy-signer-ca", "ca-pem", legacyCA)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked, "a different CA passes when the managed bundle keeps the legacy signer")
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
+	})
+
+	t.Run("the legacy -pem entry decides the AppDB legacy signer", func(t *testing.T) {
+		ctx, om, c, r, _ := newAppDBTrustMigrationFixture(t, lastAppDBSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()), managedCA, issueManaged)
+		// The original TLS Secret would pass, but the pod reads the derived -pem file.
+		writeMigrationSecret(t, ctx, c, migrationTrustLegacyAppDBCert, map[string][]byte{corev1.TLSCertKey: migrationServerCertificate(t, issueManaged)})
+		writeMigrationLegacyPEM(t, ctx, c, migrationTrustLegacyAppDBCert, migrationServerCertificate(t, issueLegacy))
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", append(append([]byte{}, managedCA...), legacyCA...))
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked, "the derived legacy -pem entry has to decide the AppDB certificate")
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, migrationTrustLegacyAppDBCert+certspkg.OperatorGeneratedCertSuffix)
+	})
+}
+
+func TestAppDBManagedCertificatePreflightUsesLatestHash(t *testing.T) {
+	ctx := t.Context()
+	managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	_, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	trustedLeaf := migrationServerCertificate(t, issueManaged)
+	newerUntrusted := migrationServerCertificate(t, issueLegacy)
+
+	setup := func(t *testing.T, publishedHash string) (kubernetesClient.Client, *omv1.MongoDBOpsManager, *omv1.MongoDBOpsManagerSpec) {
+		t.Helper()
+		om, lastSecurity, currentSecurity := newAppDBMigrationSeedTestOM(t)
+		lastSpec := &omv1.MongoDBOpsManagerSpec{AppDB: &omv1.AppDBSpec{
+			OpsManagerName: om.Name,
+			Namespace:      om.Namespace,
+			Security:       lastSecurity,
+		}}
+		legacyBase := lastSecurity.MemberCertificateSecretName(om.Spec.AppDB.Name())
+		c := newManagedCertificateKubeClient(t, om)
+		writeMigrationSecret(t, ctx, c, legacyBase+certspkg.OperatorGeneratedCertSuffix, map[string][]byte{
+			util.LatestHashSecretKey: []byte("newer"),
+			"newer":                  newerUntrusted,
+			"published":              trustedLeaf,
+		})
+		writeAppDBPublishedCertificateFile(t, ctx, c, om, publishedHash)
+		writeMigrationTLSCertificate(t, ctx, c, currentSecurity.MemberCertificateSecretName(om.Spec.AppDB.Name()), trustedLeaf)
+		writeMigrationCAConfigMap(t, ctx, c, lastSecurity.TLSConfig.CA, tlspkg.CAConfigMapKey, append(append([]byte{}, managedCA...), newerUntrusted...))
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: om.Spec.AppDB.GetCAConfigMapName(), Namespace: om.Namespace},
+			Data:       map[string]string{util.LatestHashSecretKey: "active", "active": string(managedCA)},
+		}))
+		return c, om, lastSpec
+	}
+
+	t.Run("an untrusted latest-hash is rejected even when the published file is trusted", func(t *testing.T) {
+		c, om, lastSpec := setup(t, "published")
+		status := appDBMigrationTrustStatus(ctx, c, om, lastSpec)
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "not trusted")
+	})
+
+	t.Run("a missing published file does not change the latest-hash trust check", func(t *testing.T) {
+		c, om, lastSpec := setup(t, "missing")
+		status := appDBMigrationTrustStatus(ctx, c, om, lastSpec)
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "not trusted")
+	})
+}
+
+func newAppDBTrustMigrationFixture(t *testing.T, lastAppDBSecurity func(*omv1.MongoDBOpsManager) *mdbv1.Security) (context.Context, *omv1.MongoDBOpsManager, kubernetesClient.Client, *OpsManagerReconciler, string) {
+	t.Helper()
+	ctx := t.Context()
+	om := newAppDBManagedCertificateTestOM()
+	om.Spec.AppDB.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
+		Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "appdb-managed-issuer", Kind: "Issuer"}},
+	}
+	lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{
+		Version:  om.Spec.Version,
+		Replicas: om.Spec.Replicas,
+		AppDB: &omv1.AppDBSpec{
+			Version:  om.Spec.AppDB.Version,
+			Members:  om.Spec.AppDB.Members,
+			Security: lastAppDBSecurity(om),
+		},
+	})
+	require.NoError(t, err)
+	om.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	return ctx, om, c, r, om.Annotations[util.LastAchievedSpec]
+}
+
+func TestAppDBCAChangeNeedsOpsManagerRestart(t *testing.T) {
+	lastSecurity := func(om *omv1.MongoDBOpsManager) *mdbv1.Security {
+		return &mdbv1.Security{
+			Authentication:            om.Spec.AppDB.GetSecurity().Authentication,
+			CertificatesSecretsPrefix: "appdb",
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: migrationTrustLegacyAppDBCA},
+		}
+	}
+	issuedName := func(om *omv1.MongoDBOpsManager) string {
+		return om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())
+	}
+	readyOM := func(t *testing.T, ctx context.Context, c kubernetesClient.Client, om *omv1.MongoDBOpsManager, caConfigMap string, ready bool) {
+		t.Helper()
+		phase := corev1.PodRunning
+		conditions := []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		if !ready {
+			conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+		}
+		require.NoError(t, c.Create(ctx, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: om.Name + "-0", Namespace: om.Namespace, Labels: map[string]string{"app": om.SvcName()}},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "mongodb-ops-manager", Image: "om"}}, Volumes: []corev1.Volume{{
+				Name: "appdb-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: caConfigMap}}},
+			}}},
+			Status: corev1.PodStatus{Phase: phase, Conditions: conditions},
+		}))
+	}
+
+	t.Run("the same CA does not restart Ops Manager", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), ca, issue)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", ca)
+		readyOM(t, ctx, c, om, migrationTrustLegacyAppDBCA, true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.False(t, needs)
+	})
+
+	t.Run("a different CA restarts Ops Manager that still mounts the legacy bundle", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, migrationTrustLegacyAppDBCA, true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.True(t, needs)
+	})
+
+	t.Run("a ready Ops Manager mounted on the managed bundle does not restart again", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, om.Spec.AppDB.GetCAConfigMapName(), true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.False(t, needs)
+	})
+
+	t.Run("an unready Ops Manager mounted on the managed bundle still waits", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, om.Spec.AppDB.GetCAConfigMapName(), false)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.True(t, needs)
+	})
+
+	t.Run("a missing issued leaf fails instead of restarting", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		require.NoError(t, c.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: issuedName(om), Namespace: om.Namespace}}))
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		assert.False(t, needs)
+		assert.False(t, status.IsOK())
+	})
+}
+
+// TestOpsManagerManagedCertificateTrustNonMigrationCases verifies that fresh managed resources
+// and unchanged legacy or TLS-off deployments never enter the trust preflight.
+func TestOpsManagerManagedCertificateTrustNonMigrationCases(t *testing.T) {
+	t.Run("fresh managed resource with no successful spec", func(t *testing.T) {
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, nil, nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Empty(t, baseline)
+		assert.NotContains(t, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations, util.LastAchievedSpec)
+	})
+
+	t.Run("already managed in the last successful spec", func(t *testing.T) {
+		managedSecurity := managedOMTrustMigrationSecurity(nil)
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, managedSecurity, managedSecurity)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
+	})
+
+	t.Run("TLS was off in the last successful spec", func(t *testing.T) {
+		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, &omv1.MongoDBOpsManagerSecurity{}, nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
+	})
+
+	t.Run("unchanged legacy deployment", func(t *testing.T) {
+		ctx := t.Context()
+		om := newManagedCertificateTestOM()
+		om.Spec.Backup.Enabled = false
+		om.Spec.Backup.ManagedCertificate = nil
+		om.Spec.AppDB.Security.ManagedCertificate = nil
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{TLS: omv1.MongoDBOpsManagerTLS{
+			SecretRef: omv1.TLSSecretRef{Name: migrationTrustLegacyOMCertificate},
+			CA:        migrationTrustLegacyOMCA,
+		}}
+		lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{Version: om.Spec.Version, Replicas: om.Spec.Replicas, Security: om.Spec.Security})
+		require.NoError(t, err)
+		om.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(ctx, c)
+		r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Empty(t, listManagedCertificateObjects(t, ctx, c))
+	})
+}
+
+func TestOpsManagerManagedCertificateTrustCheckpointDecoding(t *testing.T) {
+	t.Run("a pending result does not decode the checkpoint", func(t *testing.T) {
+		ctx := t.Context()
+		om := newManagedCertificateTestOM()
+		om.Spec.Backup.Enabled = false
+		om.Spec.Backup.ManagedCertificate = nil
+		om.Spec.AppDB.Security.ManagedCertificate = nil
+		om.Annotations = map[string]string{util.LastAchievedSpec: "{"}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(ctx, c)
+		r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked)
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Equal(t, certspkg.ReasonCertificatesIssuing, condition.Reason, "issuance must stay pending before the checkpoint is read")
+	})
+
+	t.Run("a malformed checkpoint fails the prepared component", func(t *testing.T) {
+		ctx, om, c, r, _ := newOMTrustMigrationFixture(t, nil, nil)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), ca, issue)
+		om.Annotations = map[string]string{util.LastAchievedSpec: "{"}
+
+		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+		require.NoError(t, err)
+		require.True(t, blocked)
+		persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
+		assert.Equal(t, status.PhaseFailed, persisted.Status.OpsManagerStatus.Phase)
+		condition := managedCertificateCondition(t, ctx, c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, "OpsManager")
+		assert.Contains(t, condition.Message, util.LastAchievedSpec)
+	})
+}
+
+func TestManagedCertificateMigrationPreflightEligibility(t *testing.T) {
+	okResult := func(part status.Part) componentCertificateResult {
+		return componentCertificateResult{part: part, status: workflow.OK(), managed: true}
+	}
+
+	t.Run("picks a prepared managed component", func(t *testing.T) {
+		om := newManagedCertificateTestOM()
+		om.Spec.AppDB.Security.ManagedCertificate = nil
+		parts := managedCertificateMigrationPreflightParts(om, []componentCertificateResult{okResult(status.OpsManager)})
+		assert.Equal(t, []status.Part{status.OpsManager}, parts)
+	})
+
+	t.Run("ignores pending and unmanaged results", func(t *testing.T) {
+		om := newManagedCertificateTestOM()
+		om.Spec.AppDB.Security.ManagedCertificate = nil
+		results := []componentCertificateResult{
+			{part: status.OpsManager, status: workflow.Pending("issuing"), managed: true},
+			{part: status.AppDb, status: workflow.OK()},
+		}
+		assert.Empty(t, managedCertificateMigrationPreflightParts(om, results))
+	})
+
+	t.Run("includes a multi-cluster AppDB", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		om.Spec.AppDB.Topology = mdbv1.ClusterTopologyMultiCluster
+		parts := managedCertificateMigrationPreflightParts(om, []componentCertificateResult{okResult(status.AppDb)})
+		assert.Equal(t, []status.Part{status.AppDb}, parts)
+	})
+
+	t.Run("skips an external AppDB", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		withExternalAppDBRef(om, &omv1.ExternalAppDBRef{Name: "external", Kind: omv1.ExternalAppDBRefKindMongoDB})
+		parts := managedCertificateMigrationPreflightParts(om, []componentCertificateResult{okResult(status.AppDb)})
+		assert.Empty(t, parts)
+	})
 }

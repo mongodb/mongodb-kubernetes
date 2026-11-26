@@ -9,16 +9,19 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // VerifyMigrationTrustsLegacyCA checks that a migration to operator-managed certificates keeps trusting
@@ -194,5 +197,191 @@ func certificatesIn(value string) []*x509.Certificate {
 
 // caRefSnippet renders the additionalTrustedCAs entry that keeps a ConfigMap's CA trusted.
 func caRefSnippet(configMapName string) string {
-	return fmt.Sprintf(`{"name": %q, "kind": "ConfigMap", "key": %q}`, configMapName, tls.CAConfigMapKey)
+	return caRefSnippetForKey(configMapName, tls.CAConfigMapKey)
+}
+
+// MigrationTrustCheck is the material of one component's legacy-to-managed migration that has to
+// be checked before the workload changes: the certificate the deployment uses today, the active
+// managed CA bundle, the certificate the operator issued and the legacy CA ConfigMap.
+type MigrationTrustCheck struct {
+	// Component names the workload in errors, for example "Ops Manager" or "AppDB".
+	Component string
+	// LegacyCertificateSecretName locates the certificate the deployment uses today.
+	LegacyCertificateSecretName string
+	// LegacyCertificateKey selects the certificate file from that Secret. It is needed for the
+	// Ops Manager legacy form, which follows the Secret type: kubernetes.io/tls uses tls.crt,
+	// anything else is the raw server.pem file the pod mounts.
+	LegacyCertificateKey func(corev1.Secret) string
+	// LegacyPEM pins the exact PEM to validate instead of reading LegacyCertificateSecretName.
+	LegacyPEM string
+	// LegacyCertificateIsOperatorPEM selects the active file of an operator-generated -pem Secret.
+	// The AppDB migration retains that file, not the original TLS Secret, in the managed -pem Secret.
+	LegacyCertificateIsOperatorPEM bool
+	// ManagedCABundleName is the managed bundle the workload selects. Only its active bundle is
+	// read, not a previous bundle retained for a rotation.
+	ManagedCABundleName string
+	// IssuedCertificateSecretName is the certificate cert-manager wrote for the managed leaf.
+	IssuedCertificateSecretName string
+	// LegacyCAConfigMapName and LegacyCAConfigMapKey are the CA file the deployment trusts today.
+	LegacyCAConfigMapName string
+	LegacyCAConfigMapKey  string
+	// AdditionalTrustedCAsField is the field that widens the managed bundle, named in errors.
+	AdditionalTrustedCAsField string
+}
+
+// VerifyManagedCertificateMigrationTrust checks that the active managed bundle trusts the legacy
+// certificate before a workload is changed, matching VerifyMigrationTrustsLegacyCA. It does not
+// require the legacy CA to trust the new issuer. Pods that have not restarted may reject the new
+// leaf until they roll onto the widened bundle, which is the MongoDB behavior. It compares
+// certificates and configured trust only; it does not prove that a client reloaded a bundle.
+//
+// A check that already holds the legacy PEM validates those bytes. The AppDB seeder uses that form
+// so it checks the certificate it is about to copy rather than rereading a Secret that may have
+// changed. LegacyCAConfigMapName and LegacyCAConfigMapKey are named in the refusal, not verified.
+func VerifyManagedCertificateMigrationTrust(ctx context.Context, c client.Reader, namespace string, check MigrationTrustCheck) workflow.Status {
+	withComponent := func(status workflow.Status) workflow.Status {
+		if status.IsOK() {
+			return status
+		}
+		return workflow.Failed(xerrors.Errorf("%s cannot migrate to operator-managed certificates: %s", check.Component, status.Message()))
+	}
+
+	managedCAs, status := readActiveTrustedCAs(ctx, c, namespace, check.ManagedCABundleName)
+	if !status.IsOK() {
+		return withComponent(status)
+	}
+
+	var legacyCerts []*x509.Certificate
+	if check.LegacyPEM != "" {
+		legacyCerts = certificatesIn(check.LegacyPEM)
+		if len(legacyCerts) == 0 {
+			return workflow.Failed(xerrors.Errorf("%s cannot migrate to operator-managed certificates: the published certificate file in Secret %s is empty or invalid", check.Component, check.LegacyCertificateSecretName))
+		}
+	} else {
+		var status workflow.Status
+		legacyCerts, status = readMigrationCertificate(ctx, c, namespace, "legacy", check.LegacyCertificateSecretName, check.LegacyCertificateKey, check.LegacyCertificateIsOperatorPEM)
+		if !status.IsOK() {
+			return withComponent(status)
+		}
+	}
+
+	var problems []string
+	if !validatedBy(legacyCerts[0], legacyCerts[1:], managedCAs) {
+		if check.LegacyCAConfigMapName == "" {
+			problems = append(problems, fmt.Sprintf("the selected legacy certificate is not trusted by the active managed CA bundle %s", check.ManagedCABundleName))
+		} else {
+			problems = append(problems, fmt.Sprintf(
+				"the legacy certificate in Secret %s is not trusted by the active managed CA bundle %s; add the CA that signed it to %s, for example %s",
+				check.LegacyCertificateSecretName, check.ManagedCABundleName, check.AdditionalTrustedCAsField, caRefSnippetForKey(check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey)))
+		}
+	}
+	// The legacy CA file is the reference the refusal names. A detected migration that cannot
+	// read it must not pass, even when the active bundle already trusts the legacy leaf.
+	if check.LegacyCAConfigMapName != "" {
+		if _, status := readMigrationCAConfigMap(ctx, c, namespace, check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey); !status.IsOK() {
+			return withComponent(status)
+		}
+	}
+
+	if len(problems) > 0 {
+		return workflow.Failed(xerrors.Errorf(
+			"%s cannot migrate to operator-managed certificates: %s",
+			check.Component, strings.Join(problems, "; ")))
+	}
+	return workflow.OK()
+}
+
+// readActiveTrustedCAs returns the certificates of the bundle the workload currently selects. The
+// ConfigMap can also retain the previous bundle, which the agent may still read during a rotation;
+// that bundle does not count as configured trust for this migration.
+func readActiveTrustedCAs(ctx context.Context, c client.Reader, namespace, name string) ([]*x509.Certificate, workflow.Status) {
+	cm, status := readMigrationObject(ctx, c, kube.ObjectKey(namespace, name), &corev1.ConfigMap{}, "the active managed CA bundle %s does not exist", name)
+	if !status.IsOK() {
+		return nil, status
+	}
+
+	hash := strings.TrimSpace(cm.Data[util.LatestHashSecretKey])
+	if hash == "" {
+		return nil, workflow.Failed(xerrors.Errorf("the managed CA bundle %s has no active bundle hash", name))
+	}
+	return certificatesFromValue(cm.Data[hash], "the managed CA bundle %s has no active certificates under %s", name, hash)
+}
+
+// readMigrationCertificate reads the certificate file the workload uses today. The whole PEM is
+// returned so the intermediates that follow the leaf can be used to connect it to a root.
+// ReadIssuedCertificate reads the leaf a cert-manager Secret holds, plus any intermediates after it.
+func ReadIssuedCertificate(ctx context.Context, c client.Reader, namespace, secretName string) ([]*x509.Certificate, workflow.Status) {
+	return readMigrationCertificate(ctx, c, namespace, "managed", secretName, nil, false)
+}
+
+// ReadLegacyCA reads the CA file the deployment trusted before the migration.
+func ReadLegacyCA(ctx context.Context, c client.Reader, namespace, name, key string) ([]*x509.Certificate, workflow.Status) {
+	return readMigrationCAConfigMap(ctx, c, namespace, name, key)
+}
+
+// CertificateValidatedBy reports whether the managed trust anchors validate the certificate.
+func CertificateValidatedBy(cert *x509.Certificate, intermediates, cas []*x509.Certificate) bool {
+	return validatedBy(cert, intermediates, cas)
+}
+
+func readMigrationCertificate(ctx context.Context, c client.Reader, namespace, role, secretName string, selectKey func(corev1.Secret) string, operatorPEM bool) ([]*x509.Certificate, workflow.Status) {
+	if secretName == "" {
+		return nil, workflow.Failed(xerrors.Errorf("the %s certificate Secret is not configured", role))
+	}
+	s, status := readMigrationObject(ctx, c, kube.ObjectKey(namespace, secretName), &corev1.Secret{}, "the %s certificate Secret %s does not exist", role, secretName)
+	if !status.IsOK() {
+		return nil, status
+	}
+
+	key := corev1.TLSCertKey
+	if operatorPEM {
+		key = currentHashOfPEMSecret(secrets.DataToStringData(s.Data))
+		if key == "" {
+			return nil, workflow.Failed(xerrors.Errorf("the %s certificate Secret %s names no current certificate file", role, secretName))
+		}
+	} else if selectKey != nil {
+		key = selectKey(*s)
+	}
+	value := string(s.Data[key])
+	if !operatorPEM && strings.TrimSpace(value) == "" {
+		return nil, workflow.Failed(xerrors.Errorf("the %s certificate Secret %s has no certificate under %s", role, secretName, key))
+	}
+	return certificatesFromValue(value, "the %s certificate Secret %s has no valid certificate under %s", role, secretName, key)
+}
+
+// readMigrationCAConfigMap reads the CA file the deployment trusts today.
+func readMigrationCAConfigMap(ctx context.Context, c client.Reader, namespace, name, key string) ([]*x509.Certificate, workflow.Status) {
+	if name == "" {
+		return nil, workflow.Failed(xerrors.New("the legacy CA ConfigMap is not configured"))
+	}
+	cm, status := readMigrationObject(ctx, c, kube.ObjectKey(namespace, name), &corev1.ConfigMap{}, "the legacy CA ConfigMap %s does not exist", name)
+	if !status.IsOK() {
+		return nil, status
+	}
+	return certificatesFromValue(cm.Data[key], "the legacy CA ConfigMap %s has no valid certificate under %s", name, key)
+}
+
+func readMigrationObject[T client.Object](ctx context.Context, c client.Reader, key client.ObjectKey, obj T, missingFormat string, args ...any) (T, workflow.Status) {
+	err := c.Get(ctx, key, obj)
+	if apiErrors.IsNotFound(err) {
+		return obj, workflow.Failed(xerrors.Errorf(missingFormat, args...))
+	}
+	if err != nil {
+		return obj, workflow.Failed(err)
+	}
+	return obj, workflow.OK()
+}
+
+func certificatesFromValue(value, emptyFormat string, args ...any) ([]*x509.Certificate, workflow.Status) {
+	certs := certificatesIn(value)
+	if len(certs) == 0 {
+		return nil, workflow.Failed(xerrors.Errorf(emptyFormat, args...))
+	}
+	return certs, workflow.OK()
+}
+
+// caRefSnippetForKey renders an additionalTrustedCAs entry that references the CA file the
+// component actually uses. Ops Manager uses mms-ca.crt; AppDB and MongoDB use ca-pem.
+func caRefSnippetForKey(configMapName, key string) string {
+	return fmt.Sprintf(`{"name": %q, "kind": "ConfigMap", "key": %q}`, configMapName, key)
 }

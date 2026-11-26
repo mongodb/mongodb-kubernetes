@@ -781,6 +781,30 @@ func (om *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GetLastSpec returns the last spec that has been applied successfully.
+//
+// The AppDB naming fields are transient (not serialized), so a decoded spec has no OpsManagerName
+// and Namespace. They are restored from this resource, so the legacy AppDB can be named and found
+// exactly as it was during the successful reconciliation.
+func (om *MongoDBOpsManager) GetLastSpec() (*MongoDBOpsManagerSpec, error) {
+	lastSpecStr := annotations.GetAnnotation(om, util.LastAchievedSpec)
+	if lastSpecStr == "" {
+		return nil, nil
+	}
+
+	lastSpec := MongoDBOpsManagerSpec{}
+	if err := json.Unmarshal([]byte(lastSpecStr), &lastSpec); err != nil {
+		return nil, err
+	}
+
+	if lastSpec.AppDB != nil {
+		lastSpec.AppDB.OpsManagerName = om.Name
+		lastSpec.AppDB.Namespace = om.Namespace
+	}
+
+	return &lastSpec, nil
+}
+
 func (om *MongoDBOpsManager) InitDefaultFields() {
 	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
 	// This doesn't update the object in Api server so the real spec won't change

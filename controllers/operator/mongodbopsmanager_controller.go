@@ -71,6 +71,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	tlspkg "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -473,6 +474,23 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return result, nil
 	}
 
+	// Ops Manager reads the AppDB CA when it starts. A different AppDB CA has to be mounted
+	// before AppDB presents the new leaf, or the running Java client rejects the handshake.
+	if needsRestart, status := appDBCAChangeNeedsOpsManagerRestart(ctx, r.client, opsManager); !status.IsOK() {
+		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+	} else if needsRestart {
+		appDBConfig, err := appDbReconciler.GetAppDBConfig(ctx, opsManager, log)
+		if err != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
+		}
+		initOpsManagerImage := images.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, r.initOpsManagerImageVersion)
+		opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
+		if status, _ := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
+			return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams)
+		}
+		return r.updateStatus(ctx, opsManager, workflow.Pending("Ops Manager must restart onto the AppDB CA bundle before AppDB changes CA"), log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+	}
+
 	// 1. Reconcile AppDB
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
@@ -574,7 +592,212 @@ func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, o
 		r.ensureBackupCertAndCA(ctx, opsManager, helper, log),
 	}
 
+	r.applyManagedCertificateMigrationTrustPreflight(ctx, opsManager, results, log)
+
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
+}
+
+// applyManagedCertificateMigrationTrustPreflight reads the successful-spec checkpoint only when a
+// successfully prepared component can need the trust check. Pending issuance, an unmanaged
+// component and an external AppDB never cause a checkpoint read.
+func (r *OpsManagerReconciler) applyManagedCertificateMigrationTrustPreflight(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) {
+	parts := managedCertificateMigrationPreflightParts(opsManager, results)
+	if len(parts) == 0 {
+		return
+	}
+
+	lastSpec, err := opsManager.GetLastSpec()
+	if err == nil && lastSpec == nil {
+		return
+	}
+
+	for i := range results {
+		result := &results[i]
+		if !result.managed || !result.status.IsOK() || !slices.Contains(parts, result.part) {
+			continue
+		}
+		var status workflow.Status
+		switch {
+		case err != nil:
+			status = workflow.Failed(xerrors.Errorf("%s cannot migrate to operator-managed certificates: %s annotation cannot be decoded: %s", componentCertificateName(result.part), util.LastAchievedSpec, err))
+		case result.part == mdbstatus.OpsManager:
+			status = opsManagerMigrationTrustStatus(ctx, r.client, opsManager, lastSpec)
+		default:
+			status = appDBMigrationTrustStatus(ctx, r.client, opsManager, lastSpec)
+		}
+		if !status.IsOK() {
+			condition := certs.IssuanceFailedCondition(status.Message())
+			result.status, result.condition = status, &condition
+			log.Warnf("Refusing the migration to operator-managed certificates: %s", status.Message())
+		}
+	}
+}
+
+// managedCertificateMigrationPreflightParts returns the successfully prepared components that can
+// need the trust preflight: Ops Manager managed TLS and an internal managed AppDB.
+func managedCertificateMigrationPreflightParts(opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult) []mdbstatus.Part {
+	parts := make([]mdbstatus.Part, 0, 2)
+	for _, result := range results {
+		if !result.managed || !result.status.IsOK() {
+			continue
+		}
+		switch result.part {
+		case mdbstatus.OpsManager:
+			if opsManager.IsManagedCertificateEnabled() {
+				parts = append(parts, result.part)
+			}
+		case mdbstatus.AppDb:
+			appDB := opsManager.Spec.AppDB
+			if appDB != nil && opsManager.IsInternalAppDB() && appDB.GetSecurity().IsManagedCertificateEnabled() {
+				parts = append(parts, result.part)
+			}
+		}
+	}
+	return parts
+}
+
+// opsManagerMigrationTrustStatus checks the HTTPS certificate of a detected Ops Manager migration.
+func opsManagerMigrationTrustStatus(ctx context.Context, c client.Reader, opsManager *omv1.MongoDBOpsManager, lastSpec *omv1.MongoDBOpsManagerSpec) workflow.Status {
+	lastSecurity := lastSpec.Security
+	if lastSecurity == nil || (lastSecurity.TLS.SecretRef.Name == "" && lastSecurity.CertificatesSecretsPrefix == "") {
+		return workflow.OK()
+	}
+	if lastSecurity.ManagedCertificate != nil || !opsManager.IsManagedCertificateEnabled() {
+		return workflow.OK()
+	}
+
+	return certs.VerifyManagedCertificateMigrationTrust(ctx, c, opsManager.Namespace, certs.MigrationTrustCheck{
+		Component:                   "Ops Manager",
+		LegacyCertificateSecretName: legacyOpsManagerCertificateSecretName(lastSecurity, opsManager.Name),
+		LegacyCertificateKey:        legacyOpsManagerCertificateKey,
+		ManagedCABundleName:         opsManager.GetOpsManagerCA(),
+		IssuedCertificateSecretName: opsManager.TLSCertificateSecretName(),
+		LegacyCAConfigMapName:       lastSecurity.TLS.CA,
+		LegacyCAConfigMapKey:        util.CaCertMMS,
+		AdditionalTrustedCAsField:   "spec.security.managedCertificate.additionalTrustedCAs",
+	})
+}
+
+// legacyOpsManagerCertificateKey follows the construction rule: a kubernetes.io/tls Secret is
+// mounted from tls.crt, anything else is the raw Opaque server.pem file.
+func legacyOpsManagerCertificateKey(secret corev1.Secret) string {
+	if secret.Type == corev1.SecretTypeTLS {
+		return corev1.TLSCertKey
+	}
+	return "server.pem"
+}
+
+// appDBCAChangeNeedsOpsManagerRestart reports that an internal AppDB is moving to a CA the running
+// Ops Manager process does not trust. Ops Manager reads the AppDB CA file when it starts and does
+// not reload it, so it has to restart onto the managed bundle before AppDB presents the new leaf.
+// A retry still sees the legacy last-successful spec, so completion is the ready pod's mount, not
+// the migration flag.
+func appDBCAChangeNeedsOpsManagerRestart(ctx context.Context, c client.Reader, opsManager *omv1.MongoDBOpsManager) (bool, workflow.Status) {
+	appDB := opsManager.Spec.AppDB
+	if appDB == nil || !opsManager.IsInternalAppDB() {
+		return false, workflow.OK()
+	}
+	lastSpec, err := opsManager.GetLastSpec()
+	if err != nil {
+		return false, workflow.Failed(err)
+	}
+	if lastSpec == nil || lastSpec.AppDB == nil || !mdbv1.IsMigratingToManagedCertificate(lastSpec.AppDB.GetSecurity(), appDB.GetSecurity()) {
+		return false, workflow.OK()
+	}
+	legacyCA := ""
+	if lastSpec.AppDB.GetSecurity().TLSConfig != nil {
+		legacyCA = lastSpec.AppDB.GetSecurity().TLSConfig.CA
+	}
+	if legacyCA == "" {
+		return false, workflow.OK()
+	}
+
+	issued, status := certs.ReadIssuedCertificate(ctx, c, opsManager.Namespace, appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()))
+	if !status.IsOK() {
+		return false, status
+	}
+	legacyCAs, status := certs.ReadLegacyCA(ctx, c, opsManager.Namespace, legacyCA, tlspkg.CAConfigMapKey)
+	if !status.IsOK() {
+		return false, status
+	}
+	if certs.CertificateValidatedBy(issued[0], issued[1:], legacyCAs) {
+		return false, workflow.OK()
+	}
+
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods, client.InNamespace(opsManager.Namespace), client.MatchingLabels{"app": opsManager.SvcName()}); err != nil {
+		return false, workflow.Failed(err)
+	}
+	wanted := appDB.GetCAConfigMapName()
+	for _, pod := range pods.Items {
+		if !podReady(pod) || !podMountsConfigMap(pod, wanted) {
+			return true, workflow.OK()
+		}
+	}
+	return len(pods.Items) == 0, workflow.OK()
+}
+
+func podReady(pod corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func podMountsConfigMap(pod corev1.Pod, name string) bool {
+	for _, volume := range pod.Spec.Volumes {
+		if volume.ConfigMap != nil && volume.ConfigMap.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// appDBMigrationTrustStatus checks an internal AppDB of a detected migration. Multi-cluster uses the
+// same certificate names and the same central read as single-cluster.
+func appDBMigrationTrustStatus(ctx context.Context, c client.Reader, opsManager *omv1.MongoDBOpsManager, lastSpec *omv1.MongoDBOpsManagerSpec) workflow.Status {
+	appDB := opsManager.Spec.AppDB
+	if appDB == nil || !opsManager.IsInternalAppDB() || lastSpec.AppDB == nil {
+		return workflow.OK()
+	}
+	lastSecurity := lastSpec.AppDB.GetSecurity()
+	currentSecurity := appDB.GetSecurity()
+	if !mdbv1.IsMigratingToManagedCertificate(lastSecurity, currentSecurity) {
+		return workflow.OK()
+	}
+
+	legacyCA := ""
+	if lastSecurity.TLSConfig != nil {
+		legacyCA = lastSecurity.TLSConfig.CA
+	}
+	legacySecretName := lastSecurity.MemberCertificateSecretName(lastSpec.AppDB.Name()) + certs.OperatorGeneratedCertSuffix
+	return certs.VerifyManagedCertificateMigrationTrust(ctx, c, opsManager.Namespace, certs.MigrationTrustCheck{
+		Component:                      "AppDB",
+		LegacyCertificateSecretName:    legacySecretName,
+		LegacyCertificateIsOperatorPEM: true,
+		ManagedCABundleName:            appDB.GetCAConfigMapName(),
+		IssuedCertificateSecretName:    currentSecurity.MemberCertificateSecretName(appDB.Name()),
+		LegacyCAConfigMapName:          legacyCA,
+		LegacyCAConfigMapKey:           tlspkg.CAConfigMapKey,
+		AdditionalTrustedCAsField:      "spec.applicationDatabase.security.managedCertificate.server.additionalTrustedCAs",
+	})
+}
+
+// legacyOpsManagerCertificateSecretName resolves the HTTPS Secret the last successful spec used.
+// It must not go through the managed getters, which describe the current spec.
+func legacyOpsManagerCertificateSecretName(lastSecurity *omv1.MongoDBOpsManagerSecurity, name string) string {
+	if lastSecurity == nil {
+		return ""
+	}
+	if lastSecurity.TLS.SecretRef.Name != "" {
+		return lastSecurity.TLS.SecretRef.Name
+	}
+	if lastSecurity.CertificatesSecretsPrefix != "" {
+		return fmt.Sprintf("%s-%s-cert", lastSecurity.CertificatesSecretsPrefix, name)
+	}
+	return ""
 }
 
 func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {

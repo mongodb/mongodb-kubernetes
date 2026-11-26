@@ -211,6 +211,113 @@ func TestVerifyMigrationTrustsLegacyCA(t *testing.T) {
 	})
 }
 
+// TestVerifyManagedCertificateMigrationTrust covers the active-bundle check for Ops Manager and
+// AppDB, including intermediates carried in the PEM and older ConfigMap entries that the active
+// hash does not reference. The legacy CA does not have to trust the issued leaf.
+func TestVerifyManagedCertificateMigrationTrust(t *testing.T) {
+	ctx := context.Background()
+	trustCheck := func(legacySecret, managedBundle, issuedSecret, legacyCA string) MigrationTrustCheck {
+		return MigrationTrustCheck{
+			Component:                   "component",
+			LegacyCertificateSecretName: legacySecret,
+			LegacyCertificateKey:        func(corev1.Secret) string { return corev1.TLSCertKey },
+			ManagedCABundleName:         managedBundle,
+			IssuedCertificateSecretName: issuedSecret,
+			LegacyCAConfigMapName:       legacyCA,
+			LegacyCAConfigMapKey:        util.CaCertMMS,
+			AdditionalTrustedCAsField:   "managedCertificate.additionalTrustedCAs",
+		}
+	}
+
+	t.Run("the same signer passes", func(t *testing.T) {
+		ca := newTestCA(t, "migration-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", ca.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", ca.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": ca.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: ca.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		assert.True(t, status.IsOK(), status.Message())
+	})
+
+	t.Run("intermediates after the leaf connect it to the active bundle", func(t *testing.T) {
+		root := newTestCA(t, "migration-root")
+		intermediate := newIntermediateCA(t, root, "migration-intermediate")
+		withChain := func(leaf []byte) []byte { return append(leaf, intermediate.pem...) }
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", withChain(intermediate.issueLeaf(t, "legacy")))
+		putLegacyCertificate(t, c, "issued", withChain(intermediate.issueLeaf(t, "issued")))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": root.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: root.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		assert.True(t, status.IsOK(), status.Message())
+	})
+
+	t.Run("an older bundle entry the active hash does not reference is not trust", func(t *testing.T) {
+		active := newTestCA(t, "active-ca")
+		legacy := newTestCA(t, "legacy-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", legacy.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", active.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{
+			util.LatestHashSecretKey: "active",
+			"active":                 active.pem,
+			"stale":                  legacy.pem,
+		})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: active.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "managed-bundle")
+		assert.Contains(t, status.Message(), "legacy")
+	})
+
+	t.Run("an issued leaf the legacy CA does not trust passes when the managed bundle trusts the legacy leaf", func(t *testing.T) {
+		managed := newTestCA(t, "managed-ca")
+		legacy := newTestCA(t, "legacy-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", legacy.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", managed.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": legacy.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: legacy.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		assert.True(t, status.IsOK(), status.Message())
+	})
+
+	t.Run("a legacy leaf outside the active bundle still fails and names additionalTrustedCAs", func(t *testing.T) {
+		managed := newTestCA(t, "managed-ca")
+		legacy := newTestCA(t, "legacy-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", legacy.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", managed.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": managed.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: legacy.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "managed-bundle")
+		assert.Contains(t, status.Message(), "legacy")
+		assert.Contains(t, status.Message(), "managedCertificate.additionalTrustedCAs")
+		assert.NotContains(t, status.Message(), "has to keep trusting the issuer")
+	})
+
+	t.Run("a legacy CA ConfigMap that does not hold the named key still blocks", func(t *testing.T) {
+		ca := newTestCA(t, "migration-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", ca.issueLeaf(t, "legacy"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": ca.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{"wrong-key": ca.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "legacy-ca")
+		assert.Contains(t, status.Message(), util.CaCertMMS)
+	})
+}
+
 // managedCertResource is a deployment that uses operator-managed certificates with x509 internal
 // cluster authentication, so it has both trust bundles.
 func managedCertResource() *mdbv1.MongoDB {
