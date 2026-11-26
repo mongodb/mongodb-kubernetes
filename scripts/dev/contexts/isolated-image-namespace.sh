@@ -10,7 +10,7 @@ set -Eeou pipefail
 # builds them into "${REGISTRY}/<namespace>/<image>" (scripts/release/pipeline.sh) and this file points the
 # operator and the tests at that namespace. With the variable unset this file is a no-op.
 #
-# Sourced by switch_context.sh after the variant context and before resolve-agent-version.sh.
+# Evergreen applies isolation before agent selection; local contexts apply it after private overrides.
 
 ISOLATED_IMAGE_NAMESPACE="${ISOLATED_IMAGE_NAMESPACE:-${isolated_image_namespace:-}}"
 
@@ -22,8 +22,12 @@ if [[ -n "${ISOLATED_IMAGE_NAMESPACE}" ]]; then
   fi
 
   if [[ "${ISOLATED_IMAGE_NAMESPACE}" == "auto" ]]; then
-    if [[ -z "${version_id:-}" ]]; then
+    if [[ -z "${EVR_TASK_ID:-}" || -z "${version_id:-}" ]]; then
       echo "isolated-image-namespace.sh: 'auto' requires the Evergreen version_id expansion" >&2
+      exit 1
+    fi
+    if [[ -n "${OVERRIDE_VERSION_ID:-}" && "${OVERRIDE_VERSION_ID:-}" != "${version_id}" ]]; then
+      echo "isolated-image-namespace.sh: 'auto' uses the current patch; use an explicit namespace when OVERRIDE_VERSION_ID points to another patch" >&2
       exit 1
     fi
     ISOLATED_IMAGE_NAMESPACE="exp-${version_id}"
@@ -39,7 +43,11 @@ if [[ -n "${ISOLATED_IMAGE_NAMESPACE}" ]]; then
   export MDB_AGENT_IMAGE_REPOSITORY="${MDB_AGENT_REGISTRY}/mongodb-agent"
   export OPS_MANAGER_REGISTRY="${REGISTRY}/${ISOLATED_IMAGE_NAMESPACE}"
   export OPS_MANAGER_IMAGE_REPOSITORY="${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-  echo "Using isolated agent and Ops Manager images from ${REGISTRY}/${ISOLATED_IMAGE_NAMESPACE}"
+  if [[ -n "${AGENT_VERSION:-}" ]]; then
+    export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
+    export MDB_COMMUNITY_AGENT_IMAGE="${AGENT_IMAGE}"
+  fi
+  echo "Using isolated agent and Ops Manager images from ${REGISTRY}/${ISOLATED_IMAGE_NAMESPACE}" >&2
 else
   unset ISOLATED_IMAGE_NAMESPACE
 fi

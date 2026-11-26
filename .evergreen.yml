@@ -288,7 +288,7 @@ variables:
 parameters:
   - key: OVERRIDE_VERSION_ID
     value: ""
-    description: "Patch id to reuse images from other Evergreen build"
+    description: "Evergreen version ID to reuse images from. When reusing another version, isolated_image_namespace cannot be 'auto'."
 
   - key: code_snippets_teardown
     value: "true"
