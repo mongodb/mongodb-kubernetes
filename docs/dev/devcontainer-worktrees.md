@@ -287,8 +287,11 @@ H1 tests the host lifecycle instead of a marker. It creates the worktree with `-
 in Evergreen, then runs `create --skip-recreate` again and checks that the `evg-host-proxy` sidecar was not restarted
 (its `State.StartedAt` is unchanged). It terminates the host and checks that `status` reports it as `GONE` and exits 0.
 A last `create`, without `--host-hours`, must end on a new host that expires in about 24 hours, with the sidecar
-tunnelling to the new address and the container reaching the clusters. H1 refuses to start when a live host named
-`acc-h1` exists, and at the end it terminates every host of that name by id, also when a check or `create` failed.
+tunnelling to the new address and the container reaching the clusters.
+
+A run refuses to start when a live host named like one of its scenarios' hosts (`acc-r1`, `acc-r2`, `acc-h1`,
+`wt-acc-shared`) exists. At the end of each host group it terminates every host of that name by id, also when a check
+or `create` failed, because `delete` leaves a host it cannot reach.
 
 The scenarios of a run start together and S1 to S3 share one host, `wt-acc-shared`, so the run takes as long as its
 slowest group and needs their resources at once: L1, L2 and V1 about 19 GB in the Docker VM, and four Evergreen hosts for

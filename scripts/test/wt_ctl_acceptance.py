@@ -218,9 +218,8 @@ def run_group(group):
     finally:
         for s in live:
             wt_ctl(REPO, "delete", "--all", "--force", s.branch, check=False)
-        for s in group:
-            if s.id == "H1":
-                end_hosts(s.where)
+        if group[0].remote:  # delete leaves a host it cannot reach (ssh refused, say), and the run paid for it
+            end_hosts(group[0].where)
         for s in group:  # delete never removes a branch, and a leftover acc-* branch stops the next run
             run("git", "-C", REPO, "branch", "-D", s.branch, check=False)
     return {s.id: (failed.get(s.id) or problem, time.monotonic() - start) for s in group}
@@ -234,9 +233,9 @@ def main():
         parser.error(f"unknown scenario, valid ones are {','.join(SCENARIOS)}")
     if run("git", "-C", REPO, "branch", "--list", "acc-*"):
         sys.exit("a branch acc-* exists from an earlier run: delete its worktree and the branch first")
-    h1_host = SCENARIOS["H1"][0]
-    if "H1" in ids and evg.find(h1_host):
-        sys.exit(f"a live Evergreen host named {h1_host} exists: terminate it first, H1 ends every host of that name")
+    for name in dict.fromkeys(Worktree(i).where for i in ids if Worktree(i).remote):
+        if evg.find(name):
+            sys.exit(f"a live Evergreen host named {name} exists: terminate it first, the run ends every host of that name")
     private = REPO / "scripts/dev/contexts/private-context"
     if not private.is_file() or not re.search(r"^[^#\n]*LOCAL_OPERATOR=true", private.read_text(), re.M):
         sys.exit("private-context must set LOCAL_OPERATOR=true in the container (see the guide)")
