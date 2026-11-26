@@ -2714,7 +2714,8 @@ buildvariants:
     display_name: mckci_release_promote
     tags: [ "test_all_and_promote", "test_all_and_promote_promotion" ]
     allowed_requesters: [ "commit", "patch" ]
-    cron: "0 0,6,12,18 * * *"
+    # No weekend/night exclusions: cron won't duplicate running or completed tasks.
+    cron: "0 */4 * * *"
     depends_on:
       - name: "*"
         variant: ".test_all_and_promote_test"
