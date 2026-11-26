@@ -30,6 +30,7 @@ DOCKERFILE_FILES=(
     "docker/mongodb-enterprise-ops-manager/Dockerfile"
     "docker/mongodb-kubernetes-init-database/Dockerfile"
     "docker/mongodb-kubernetes-init-ops-manager/Dockerfile"
+    "docker/mongodb-kubernetes-mongodb-proxy/Dockerfile"
     "docker/mongodb-kubernetes-operator/Dockerfile"
     "docker/mongodb-kubernetes-readinessprobe/Dockerfile"
     "docker/mongodb-kubernetes-upgrade-hook/Dockerfile"
