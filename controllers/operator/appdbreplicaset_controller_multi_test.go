@@ -61,7 +61,7 @@ func TestAppDBManagedCABundleCopyCarriesOwnerUID(t *testing.T) {
 		Data:       map[string]string{"ca-pem": "issued"},
 	}))
 
-	appDB, err := NewAppDBReplicaSetReconciler(ctx, images.ImageUrls{}, "", manager, r.ReconcileCommonController, om.NewOpsManagerConnection, r.memberClustersMap, architectures.NonStatic, "", zap.S())
+	appDB, err := NewAppDBReplicaSetReconciler(ctx, images.ImageUrls{}, "", manager, r.ReconcileCommonController, om.NewOpsManagerConnection, r.memberClustersMap, architectures.NonStatic, "", corev1.PullIfNotPresent, zap.S())
 	require.NoError(t, err)
 	require.True(t, appDB.replicateTLSCAConfigMap(ctx, manager, zap.S()).IsOK())
 

@@ -82,6 +82,7 @@ type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
 	omConnectionFactory       om.ConnectionFactory
 	imageUrls                 images.ImageUrls
+	imagePullPolicy           corev1.PullPolicy
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
 
@@ -851,6 +852,8 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(conn om.Connection,
 		WithAgentImage(images.ContainerImage(reconciler.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(reconciler.customAgentURL),
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture, reconciler.defaultImageType)),
+		WithMongodbProxyImage(images.MongodbProxyImage(reconciler.imageUrls)),
+		WithImagePullPolicy(reconciler.imagePullPolicy),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),
@@ -875,6 +878,7 @@ func AddReplicaSetController(
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
+	imagePullPolicy corev1.PullPolicy,
 	omMetrics OMMetricsMultiplexer,
 	allowedIssuers certs.AllowedIssuers,
 ) error {
@@ -884,6 +888,7 @@ func AddReplicaSetController(
 
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics, certManagerReadiness)
+	reconciler.imagePullPolicy = imagePullPolicy
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err

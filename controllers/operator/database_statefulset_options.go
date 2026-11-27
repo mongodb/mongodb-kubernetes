@@ -1,6 +1,8 @@
 package operator
 
 import (
+	corev1 "k8s.io/api/core/v1"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -162,6 +164,20 @@ func WithDatabaseNonStaticImage(image string) func(*construct.DatabaseStatefulSe
 func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
 		opts.MongodbImage = image
+	}
+}
+
+// WithMongodbProxyImage sets the MongodbProxyImage field.
+func WithMongodbProxyImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.MongodbProxyImage = image
+	}
+}
+
+// WithImagePullPolicy sets the pull policy for the images mounted as volumes.
+func WithImagePullPolicy(policy corev1.PullPolicy) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.ImagePullPolicy = policy
 	}
 }
 

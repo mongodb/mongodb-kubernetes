@@ -51,9 +51,11 @@ type AppDBStatefulSetOptions struct {
 	VaultConfig vault.VaultConfiguration
 	CertHash    string
 
-	InitAppDBImage string
-	MongodbImage   string
-	AgentImage     string
+	InitAppDBImage    string
+	MongodbImage      string
+	MongodbProxyImage string
+	ImagePullPolicy   corev1.PullPolicy
+	AgentImage        string
 
 	PrometheusTLSCertHash string
 	CustomAgentURL        string
@@ -370,6 +372,27 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	}
 }
 
+// appdbMongodLogEnv tells the proxy which mongod log file to tail. The proxy starts mongod but does not
+// configure it, so the file comes from the effective AppDB agent systemLog: the deprecated AppDB value unless
+// the mongod one is set, and the mongod default when neither is. A mongod that logs to syslog writes no file,
+// so the variable stays unset and the proxy tails nothing.
+func appdbMongodLogEnv(appDb *om.AppDBSpec) []corev1.EnvVar {
+	systemLog := &automationconfig.SystemLog{
+		Destination: automationconfig.File,
+		Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
+	}
+	if appDb.AutomationAgent.SystemLog != nil {
+		systemLog = appDb.AutomationAgent.SystemLog
+	}
+	if appDb.AutomationAgent.Mongod.SystemLog != nil {
+		systemLog = appDb.AutomationAgent.Mongod.SystemLog
+	}
+	if systemLog.Destination == automationconfig.Syslog || systemLog.Path == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: LogFileMongoDBEnv, Value: systemLog.Path}}
+}
+
 // ShouldEnableMonitoring returns true if monitoring should be configured in the automation config's monitoringVersions.
 func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
 	return GlobalMonitoringSettingEnabled() && podVars != nil && podVars.ProjectID != ""
@@ -405,8 +428,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		podSpec.Spec = WithoutHolderContainer(appsv1.StatefulSetSpec{Template: *podSpec}, log).Template.Spec
 	}
 
+	architecture := EffectiveArchitecture(opsManager.Annotations, defaultArchitecture, opts.MongodbProxyImage)
+	usesProxy := architecture == architectures.StaticGA
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	isStatic := architecture != architectures.NonStatic
+	automationAgentCommand := AutomationAgentCommand(isStatic, usesProxy, ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -465,8 +491,16 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
 
 	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
-	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
+	// Only the non-static architecture reads /opt/scripts: its init containers copy the launcher, the probes
+	// and the version upgrade hook there. Static-ga runs everything from the init-database image.
+	scriptsVolumeMod := podtemplatespec.NOOP()
+	if !usesProxy {
+		scriptsVolumeMod = podtemplatespec.WithVolume(scriptsVolume)
+	}
 	withStaticContainerModification := podtemplatespec.NOOP()
+	withProxyAgentModification := podtemplatespec.NOOP()
+	withProxyMongodbModification := podtemplatespec.NOOP()
+	proxyVolumes := []corev1.Volume{}
 	shareProcessNs := statefulset.NOOP()
 
 	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
@@ -479,14 +513,43 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
 		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
 	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount, initDatabaseImageVolumeMount()}
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, tmpVolumeMount, initDatabaseImageVolumeMount()}
+		if !usesProxy {
+			staticMounts = append(staticMounts, scriptsVolumeMount)
+		}
 		withStaticContainerModification = podtemplatespec.Apply(
-			podtemplatespec.WithVolume(initDatabaseImageVolume(opts.InitAppDBImage)),
+			podtemplatespec.WithVolume(initDatabaseImageVolume(opts.InitAppDBImage, opts.ImagePullPolicy)),
 			podtemplatespec.WithContainer(util.AgentContainerName, container.WithReadinessProbe(probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
 		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
-		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+		if usesProxy {
+			proxyVolumes = append(proxyVolumes,
+				imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage, opts.ImagePullPolicy),
+				mongodbProxySocketVolume(),
+			)
+			withProxyAgentModification = podtemplatespec.WithContainer(
+				util.AgentContainerName,
+				container.Apply(
+					container.WithEnvs(corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{mongodbProxySocketMount()}),
+				),
+			)
+			withProxyMongodbModification = podtemplatespec.WithContainer(
+				util.MongodbContainerName,
+				container.Apply(
+					container.WithEnvs(appdbMongodLogEnv(appDb)...),
+					container.WithCommand([]string{mongodbProxyBinaryPath}),
+					container.WithArgs([]string{"-listen", MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{
+						readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
+						mongodbProxySocketMount(),
+					}),
+				),
+			)
+		} else {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+			}
 		}
 	}
 
@@ -527,16 +590,20 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
+				podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 				podtemplatespec.WithServiceAccount(appDBServiceAccount),
 				podtemplatespec.WithVolume(healthStatusVolume),
 				automationConfigVolumeFunc,
 				hooksVolumeMod,
 				scriptsVolumeMod,
+				podtemplatespec.WithVolumes(proxyVolumes),
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
 				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
-				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),
+				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers && !usesProxy)),
+				withProxyAgentModification,
+				withProxyMongodbModification,
 				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,

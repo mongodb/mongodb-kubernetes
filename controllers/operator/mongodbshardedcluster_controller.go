@@ -86,6 +86,7 @@ type ReconcileMongoDbShardedCluster struct {
 	omConnectionFactory       om.ConnectionFactory
 	memberClustersMap         map[string]client.Client
 	imageUrls                 images.ImageUrls
+	imagePullPolicy           corev1.PullPolicy
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
 
@@ -614,6 +615,7 @@ type ShardedClusterReconcileHelper struct {
 	commonController          *ReconcileCommonController
 	omConnectionFactory       om.ConnectionFactory
 	imageUrls                 images.ImageUrls
+	imagePullPolicy           corev1.PullPolicy
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
 	automationAgentVersion    string
@@ -888,6 +890,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
+	reconcilerHelper.imagePullPolicy = r.imagePullPolicy
 	return reconcilerHelper.Reconcile(ctx, log)
 }
 
@@ -2227,6 +2230,7 @@ func AddShardedClusterController(
 	defaultImageType architectures.ImageType,
 	memberClustersMap map[string]cluster.Cluster,
 	backupEnableDelay time.Duration,
+	imagePullPolicy corev1.PullPolicy,
 	omMetrics OMMetricsMultiplexer,
 	allowedIssuers certs.AllowedIssuers,
 ) error {
@@ -2236,6 +2240,7 @@ func AddShardedClusterController(
 	// message when it is false.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics, certManagerReadiness)
+	reconciler.imagePullPolicy = imagePullPolicy
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -3130,6 +3135,10 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
+
+		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithImagePullPolicy(r.imagePullPolicy),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -3176,6 +3185,10 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
+
+		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithImagePullPolicy(r.imagePullPolicy),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -3224,6 +3237,10 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
+
+		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithImagePullPolicy(r.imagePullPolicy),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

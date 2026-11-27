@@ -117,13 +117,14 @@ type ReconcileAppDbReplicaSet struct {
 	helper              *AppDBReconcilerHelper
 
 	imageUrls           images.ImageUrls
+	imagePullPolicy     corev1.PullPolicy
 	initDatabaseVersion string
 
 	defaultArchitecture architectures.DefaultArchitecture
 	defaultImageType    architectures.ImageType
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, imagePullPolicy corev1.PullPolicy, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	helper, err := NewAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, log)
 	if err != nil {
 		return nil, err
@@ -134,6 +135,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 		omConnectionFactory:       omConnectionFactory,
 		helper:                    helper,
 		imageUrls:                 imageUrls,
+		imagePullPolicy:           imagePullPolicy,
 		initDatabaseVersion:       initDatabaseVersion,
 		defaultArchitecture:       defaultArchitecture,
 		defaultImageType:          defaultImageType,
@@ -939,9 +941,11 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture, r.defaultImageType),
-		CustomAgentURL: r.customAgentURL,
+		InitAppDBImage:    images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
+		MongodbImage:      images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture, r.defaultImageType),
+		MongodbProxyImage: images.MongodbProxyImage(r.imageUrls),
+		ImagePullPolicy:   r.imagePullPolicy,
+		CustomAgentURL:    r.customAgentURL,
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
 		if !rs.PodSpec.IsAgentImageOverridden() {

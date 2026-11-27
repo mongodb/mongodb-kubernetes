@@ -7,15 +7,17 @@ import (
 )
 
 // reservedArg reports whether arg is a flag that the proxy owns. The proxy gives mongod its config file, and a
-// forking mongod leaves the proxy's control, so the agent must not set either itself. Both the separate form
-// ("--config path") and the "=" form ("--config=path") are reserved.
+// forking mongod leaves the proxy's control, so the agent must not set either itself. mongod accepts the short
+// form, the single-dash and the double-dash long forms, with the value separate ("-f path"), attached
+// ("-f/path") or after "=" ("-f=path").
 func reservedArg(arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	switch name {
-	case "-f", "--config", "--fork":
+	case "-f", "--config", "-config", "--fork", "-fork":
 		return true
 	}
-	return false
+	// The attached form carries the path in the same argument: -f/abs/path.conf.
+	return strings.HasPrefix(name, "-f") && !strings.HasPrefix(name, "--")
 }
 
 // launchSpec is a validated StartRequest turned into what exec needs.

@@ -170,6 +170,9 @@ initDatabase:
   name: mongodb-kubernetes-init-database
   version: 1.17.0
 
+# The mongodb-proxy image is internal to the static-ga architecture and is not published with the operator.
+# Set mongodbProxy.image to the full image reference when you enable static-ga.
+
 ## Ops Manager
 opsManager:
   name: mongodb-enterprise-ops-manager-ubi

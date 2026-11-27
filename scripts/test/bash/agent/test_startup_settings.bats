@@ -112,3 +112,12 @@ PY
     [ "${status}" -eq 0 ]
     [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf\n-overrideLocalHost=' ]
 }
+
+@test "static-ga exits with the agent status instead of waiting for the log tails" {
+    export MDB_STATIC_CONTAINERS_ARCHITECTURE=static-ga
+    printf '#!/bin/sh\nexit 9\n' > "${FIXTURE_ROOT}/agent/mongodb-agent"
+    chmod +x "${FIXTURE_ROOT}/agent/mongodb-agent"
+    run bash "${FIXTURE_ROOT}/scripts/agent-launcher.sh"
+    [ "${status}" -eq 9 ]
+}
+

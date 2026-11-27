@@ -110,6 +110,7 @@ type OpsManagerReconciler struct {
 	memberClustersMap map[string]client.Client
 
 	imageUrls                  images.ImageUrls
+	imagePullPolicy            corev1.PullPolicy
 	initDatabaseVersion        string
 	initOpsManagerImageVersion string
 	defaultArchitecture        architectures.DefaultArchitecture
@@ -1624,6 +1625,7 @@ func AddOpsManagerController(
 	initOpsManagerImageVersion string,
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
+	imagePullPolicy corev1.PullPolicy,
 	allowedIssuers certs.AllowedIssuers,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before
@@ -1632,6 +1634,7 @@ func AddOpsManagerController(
 
 	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	reconciler.certManagerReadiness = certManagerReadiness
+	reconciler.imagePullPolicy = imagePullPolicy
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -3077,7 +3080,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.S
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, r.defaultImageType, log)
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, r.defaultImageType, r.imagePullPolicy, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

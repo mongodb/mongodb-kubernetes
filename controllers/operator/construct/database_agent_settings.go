@@ -35,7 +35,7 @@ type agentRuntime struct {
 	home         string
 	logDirectory string
 	downloadBase string
-	static       bool
+	architecture string
 }
 
 func newAgentRuntime(variables map[string]string) agentRuntime {
@@ -43,12 +43,17 @@ func newAgentRuntime(variables map[string]string) agentRuntime {
 		home:         cmp.Or(variables[MmsHomeEnv], util.PvcMmsHomeMountPath),
 		logDirectory: cmp.Or(variables[MmsLogDirEnv], util.PvcMountPathLogs),
 		downloadBase: variables[DownloadBaseEnv],
-		static:       variables[StaticContainersArchitectureEnv] != "",
+		architecture: variables[StaticContainersArchitectureEnv],
 	}
 }
 
 func databaseAgentSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
-	return resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentSettingsSource())
+	settings := resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentSettingsSource())
+	if runtime.architecture == "static-ga" {
+		settings[mongodbToolsPathFlag] = staticGAAgentToolsPath
+		settings[mongodProxyAddressFlag] = MongodbProxyAddress
+	}
+	return settings
 }
 
 func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
@@ -70,7 +75,9 @@ func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, runtime agentRun
 		settings["cluster"] = "/var/lib/mongodb-automation/cluster-config.json"
 		settings["serveStatusPort"] = "5000"
 	}
-	if runtime.static {
+	if runtime.architecture == "static-ga" {
+		settings["operatorMode"] = strconv.FormatBool(true)
+	} else if runtime.architecture != "" {
 		settings["operatorMode"] = strconv.FormatBool(true)
 		settings["binariesFixedPath"] = path.Join(cmp.Or(runtime.downloadBase, opts.GetDownloadBase()), "mongod/bin")
 	} else {
