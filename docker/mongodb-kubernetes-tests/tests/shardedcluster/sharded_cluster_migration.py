@@ -23,11 +23,8 @@ from tests.shardedcluster.conftest import (
 )
 from tests.vm_migration.vm_migration_common_helper import assert_migration_data_exists, insert_migration_data
 
-NON_STATIC_TO_STATIC_GA = "sharded-cluster-migration-non-static-to-static-ga"
-NON_STATIC_TO_STATIC = "sharded-cluster-migration-non-static-to-static"
-STATIC_TO_STATIC_GA = "sharded-cluster-migration-static-to-static-ga"
-
-_CLUSTER_NAMES = (NON_STATIC_TO_STATIC_GA, NON_STATIC_TO_STATIC, STATIC_TO_STATIC_GA)
+# One name for every class: only one class runs per variant, and the previous class's cluster is deleted first.
+MDB_RESOURCE_NAME = "sharded-cluster-migration"
 
 # static-ga is a target in every supported transition, never a source, so no single resource can walk all three.
 skip_unless_non_static = pytest.mark.skipif(
@@ -40,19 +37,18 @@ skip_unless_static = pytest.mark.skipif(
 )
 
 
-def _new_cluster(namespace: str, name: str, version: str, architecture: str) -> MongoDB:
+def _new_cluster(namespace: str, version: str, architecture: str) -> MongoDB:
     """Create this class's cluster after removing whatever the previous class left behind.
 
     The operator allows one MongoDB cluster per Ops Manager project, and this namespace maps to one project,
     so the classes cannot run side by side.
     """
-    for existing_name in _CLUSTER_NAMES:
-        existing = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace, name=existing_name)
-        if try_load(existing):
-            existing.delete()
-            run_periodically(lambda: not try_load(existing), timeout=600, msg=f"{existing_name} to be deleted")
+    existing = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
+    if try_load(existing):
+        existing.delete()
+        run_periodically(lambda: not try_load(existing), timeout=600, msg=f"{MDB_RESOURCE_NAME} to be deleted")
 
-    resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace, name=name)
+    resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
     resource.set_version(ensure_ent_version(version))
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = architecture
 
@@ -92,17 +88,17 @@ def operator_ready(operator: Operator) -> Operator:
 
 @fixture(scope="module")
 def non_static_to_static_ga_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
-    return _new_cluster(namespace, NON_STATIC_TO_STATIC_GA, custom_mdb_version, "non-static")
+    return _new_cluster(namespace, custom_mdb_version, "non-static")
 
 
 @fixture(scope="module")
 def non_static_to_static_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
-    return _new_cluster(namespace, NON_STATIC_TO_STATIC, custom_mdb_version, "non-static")
+    return _new_cluster(namespace, custom_mdb_version, "non-static")
 
 
 @fixture(scope="module")
 def static_to_static_ga_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
-    return _new_cluster(namespace, STATIC_TO_STATIC_GA, custom_mdb_version, "static")
+    return _new_cluster(namespace, custom_mdb_version, "static")
 
 
 @fixture(scope="module")
