@@ -338,6 +338,12 @@ patch_aliases:
   - alias: "staging"
     variant_tags: [ "staging" ]
     task: ".*"
+  - alias: "staging"
+    variant_tags: [ "e2e_test_suite" ]
+    task_tags: [ "e2e_light" ]
+  - alias: "test_all_and_promote"
+    variant_tags: [ "test_all_and_promote" ]
+    task: ".*"
   - alias: "static"
     description: "Run all static container variants"
     variant_tags: [ "static" ]
@@ -1722,7 +1728,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "staging", "e2e_mco_test_suite", "e2e_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_mco_test_suite", "e2e_test_suite" ]
     <<: [ *production_code_paths, *community_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1733,7 +1739,7 @@ buildvariants:
   - name: e2e_mdb_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1743,7 +1749,7 @@ buildvariants:
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1753,7 +1759,7 @@ buildvariants:
   - name: e2e_static_mdb_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1764,7 +1770,7 @@ buildvariants:
   - name: e2e_static_mdb_kind_ubi9_slim_cloudqa
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi9_slim_cloudqa
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1775,7 +1781,7 @@ buildvariants:
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1796,7 +1802,7 @@ buildvariants:
   - name: e2e_mdb_kind_ubi_cloudqa_large
     batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa_large
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1808,7 +1814,7 @@ buildvariants:
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1819,7 +1825,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1836,7 +1842,7 @@ buildvariants:
 
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1853,7 +1859,7 @@ buildvariants:
   - name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
     batchtime: 60
     display_name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite", "cloudqa", "static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1869,7 +1875,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
     run_on:
       - ubuntu2404-small
     <<: *base_no_om_image_dependency
@@ -1907,7 +1913,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om7", "patch", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om7", "patch", "non_static" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1920,7 +1926,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om7", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om7", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1932,7 +1938,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2204-medium-high-memory
@@ -1948,7 +1954,7 @@ buildvariants:
   # Ops Manager Tests for the 9.0 release candidate
   - name: e2e_om90_kind_ubi
     display_name: e2e_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: [*production_code_paths, *base_om9_dependency]
@@ -1965,7 +1971,7 @@ buildvariants:
 
   - name: e2e_om_dev_kind_ubi
     display_name: e2e_om_dev_kind_ubi
-    tags: [ "staging", "ops_manager_license" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "ops_manager_license" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: [ *production_code_paths, *base_om_dev_dependency ]
@@ -1974,7 +1980,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1987,7 +1993,7 @@ buildvariants:
 
   - name: e2e_om90_kind_ubi_large
     display_name: e2e_om90_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static" ]
     run_on:
       - ubuntu2404-large
     <<: [*production_code_paths, *base_om9_dependency]
@@ -1997,7 +2003,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi_large
     display_name: e2e_static_om90_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2007,7 +2013,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2019,7 +2025,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi9_slim
     display_name: e2e_static_om80_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2028,7 +2034,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi9_slim
     display_name: e2e_static_om90_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2037,7 +2043,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2048,7 +2054,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2059,7 +2065,7 @@ buildvariants:
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
-    tags: [ "staging", "e2e_test_suite", "race" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "race" ]
     run_on:
       - ubuntu2404-xlarge
     <<: *base_om7_dependency_with_race
@@ -2068,7 +2074,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_power
     display_name: e2e_smoke_ibm_power
-    tags: [ "staging", "e2e_smoke_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -2089,7 +2095,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_power
     display_name: e2e_static_smoke_ibm_power
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -2110,7 +2116,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_power_ubi9_slim
     display_name: e2e_static_smoke_ibm_power_ubi9_slim
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -2131,7 +2137,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_z
     display_name: e2e_smoke_ibm_z
-    tags: [ "staging", "e2e_smoke_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2152,7 +2158,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2171,7 +2177,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z_ubi9_slim
     display_name: e2e_static_smoke_ibm_z_ubi9_slim
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2190,7 +2196,7 @@ buildvariants:
 
   - name: e2e_smoke_arm
     display_name: e2e_smoke_arm
-    tags: [ "staging", "e2e_smoke_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
@@ -2210,7 +2216,7 @@ buildvariants:
 
   - name: e2e_static_smoke_arm
     display_name: e2e_static_smoke_arm
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
@@ -2228,7 +2234,7 @@ buildvariants:
 
   - name: e2e_static_smoke_arm_ubi9_slim
     display_name: e2e_static_smoke_arm_ubi9_slim
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
@@ -2247,7 +2253,7 @@ buildvariants:
   - name: e2e_multi_cluster_kind
     batchtime: 60
     display_name: e2e_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
@@ -2258,7 +2264,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_kind
     batchtime: 60
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2269,7 +2275,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_kind_ubi9_slim
     batchtime: 60
     display_name: e2e_static_multi_cluster_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2279,7 +2285,7 @@ buildvariants:
   - name: e2e_multi_cluster_2_clusters
     batchtime: 60
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om7_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2289,7 +2295,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_2_clusters
     batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2299,7 +2305,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_2_clusters_ubi9_slim
     batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2309,7 +2315,7 @@ buildvariants:
   # The multi-cluster OM variants below run against the 9.0 release candidate.
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2318,7 +2324,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2332,7 +2338,7 @@ buildvariants:
   # variants, as it did on master.
   - name: e2e_multi_cluster_om70_appdb_upgrade
     display_name: e2e_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
@@ -2341,7 +2347,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om70_appdb_upgrade
     display_name: e2e_static_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2350,7 +2356,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2359,7 +2365,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
-    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2368,7 +2374,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2380,7 +2386,7 @@ buildvariants:
   - name: e2e_operator_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2390,7 +2396,7 @@ buildvariants:
   - name: e2e_static_operator_kind_ubi_cloudqa
     batchtime: 60
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -2400,7 +2406,7 @@ buildvariants:
   - name: e2e_operator_no_webhook_roles_cloudqa
     batchtime: 60
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2409,7 +2415,7 @@ buildvariants:
 
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
@@ -2431,7 +2437,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "staging", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -2451,7 +2457,7 @@ buildvariants:
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "staging", "e2e_mco_test_suite", "e2e_test_suite" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_mco_test_suite", "e2e_test_suite" ]
     <<: [ *production_code_paths, *community_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2492,7 +2498,7 @@ buildvariants:
 
   - name: init_test_run
     display_name: init_test_run
-    tags: [ "staging", "static", "non_static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2515,7 +2521,7 @@ buildvariants:
 
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
-    tags: [ "staging" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -2527,7 +2533,7 @@ buildvariants:
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
-    tags: [ "staging" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2539,7 +2545,7 @@ buildvariants:
 
   - name: init_test_run_arm
     display_name: init_test_run_arm
-    tags: [ "staging" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
     run_on:
       - ubuntu2204-arm64-small
     depends_on:
@@ -2570,7 +2576,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-    tags: [ "staging", "static", "non_static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2617,7 +2623,7 @@ buildvariants:
 
   - name: build_om70_images
     display_name: build_om70_images
-    tags:  [ "staging", "om7", "static", "non_static" ]
+    tags:  [ "test_all_and_promote", "test_all_and_promote_test", "om7", "static", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2625,7 +2631,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "staging", "om8", "static", "non_static" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "om8", "static", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2633,7 +2639,7 @@ buildvariants:
 
   - name: build_om_dev_images
     display_name: build_om_dev_images
-    tags: [ "staging", "ops_manager_license" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "ops_manager_license" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2641,7 +2647,7 @@ buildvariants:
 
   - name: build_om90_images
     display_name: build_om90_images
-    tags: [ "staging", "om9", "static", "non_static", "static_light" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_test", "om9", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2700,17 +2706,16 @@ buildvariants:
     tasks:
       - name: release_om_and_agents
 
-  # Notification task - runs after all staging tasks complete to report build status.
-  # Runs after all staging tests (including GKE snippets) succeed on a merge to
-  # master or a backporting branch.
-  # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
+  # Manually selected by the test_all_and_promote patch alias after all tagged
+  # test and prerequisite variants succeed; it does not run on commit builds.
   - name: mckci_release_promote
     display_name: mckci_release_promote
     batchtime: 60
-    allowed_requesters: [ "commit" ]
+    tags: [ "test_all_and_promote", "test_all_and_promote_promotion" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: "*"
-        variant: ".staging"
+        variant: ".test_all_and_promote_test"
         status: "success"
     run_on:
       - ubuntu2404-small
