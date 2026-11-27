@@ -11,8 +11,6 @@ source "${script_dir}/variables/e2e_ibm_smoke_base"
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-# TODO(KUBE-530): Switch to static-ga once the proxy Agent merges and a
-# compatible image is available for this smoke context.
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
 # MDB supports s390x on RHEL9 only from 8.0.12 onwards
 export CUSTOM_MDB_VERSION=8.0.12-ent
