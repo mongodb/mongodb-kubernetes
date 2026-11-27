@@ -671,6 +671,178 @@ func TestDatabaseStatefulSet_UpdateStrategy(t *testing.T) {
 	}
 }
 
+func TestDatabaseStatefulSet_NodeReplacementModeAgentFlag(t *testing.T) {
+	staticGAAnnotations := map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)}
+	defaultAgentFlags := "-logFile=" + path.Join(util.PvcMountPathLogs, "automation-agent.log") + ","
+
+	newReplicaSet := func() mdbv1.MongoDB {
+		return *mdbv1.NewReplicaSetBuilder().SetAnnotations(staticGAAnnotations).Build()
+	}
+
+	sharded := mdbv1.NewDefaultShardedClusterBuilder().SetAnnotations(staticGAAnnotations).Build()
+	// single-cluster StatefulSet construction looks up the member cluster in each tier's ClusterSpecList,
+	// which the reconciler normally populates during defaulting.
+	for _, componentSpec := range []*mdbv1.ShardedClusterComponentSpec{sharded.Spec.ConfigSrvSpec, sharded.Spec.MongosSpec, sharded.Spec.ShardSpec} {
+		componentSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+			{ClusterName: multicluster.LegacyCentralClusterName, Members: 3},
+		}
+	}
+
+	tests := []struct {
+		name               string
+		mdb                mdbv1.MongoDB
+		stsOptFunc         func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions
+		expectedAgentFlags string
+	}{
+		{
+			name:               "static-ga via annotation replica set",
+			mdb:                newReplicaSet(),
+			stsOptFunc:         ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=infraRevision,",
+		},
+		{
+			name:               "static-ga via operator default replica set",
+			mdb:                *mdbv1.NewReplicaSetBuilder().Build(),
+			stsOptFunc:         ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.StaticGA)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=infraRevision,",
+		},
+		{
+			name:               "static-ga standalone",
+			mdb:                *mdbv1.NewStandaloneBuilder().SetAnnotations(staticGAAnnotations).Build(),
+			stsOptFunc:         StandaloneOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=readiness,",
+		},
+		{
+			name:               "static-ga config server",
+			mdb:                *sharded,
+			stsOptFunc:         ConfigServerOptions(sharded.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName, GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=readiness,",
+		},
+		{
+			name:               "static-ga mongos",
+			mdb:                *sharded,
+			stsOptFunc:         MongosOptions(sharded.Spec.MongosSpec, multicluster.LegacyCentralClusterName, GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=readiness,",
+		},
+		{
+			name:               "static-ga shard",
+			mdb:                *sharded,
+			stsOptFunc:         ShardOptions(0, sharded.Spec.ShardSpec, multicluster.LegacyCentralClusterName, GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=readiness,",
+		},
+		{
+			name: "static-ga multi-cluster replica set",
+			mdb:  newReplicaSet(),
+			stsOptFunc: ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic), func(options *DatabaseStatefulSetOptions) {
+				options.StsType = MultiReplicaSet
+			}),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=readiness,",
+		},
+		{
+			name:               "static replica set",
+			mdb:                *mdbv1.NewReplicaSetBuilder().SetAnnotations(map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}).Build(),
+			stsOptFunc:         ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags,
+		},
+		{
+			name:               "non-static replica set",
+			mdb:                *mdbv1.NewReplicaSetBuilder().Build(),
+			stsOptFunc:         ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags,
+		},
+		{
+			name: "static-ga replica set overrides user nodeReplacementMode",
+			mdb: *mdbv1.NewReplicaSetBuilder().SetAnnotations(staticGAAnnotations).
+				SetAgentConfig(mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"nodeReplacementMode": "readiness"}}).Build(),
+			stsOptFunc:         ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedAgentFlags: defaultAgentFlags + "-nodeReplacementMode=infraRevision,",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sts := DatabaseStatefulSet(tt.mdb, tt.stsOptFunc, zap.S())
+
+			agentFlags := envVarsNamed(agentContainer(t, sts).Env, util.AgentFlagsEnv)
+			require.Len(t, agentFlags, 1)
+			assert.Equal(t, tt.expectedAgentFlags, agentFlags[0].Value)
+		})
+	}
+}
+
+func TestStartupParametersToAgentFlagOverridesNodeReplacementMode(t *testing.T) {
+	parameters := mdbv1.StartupParameters{"nodeReplacementMode": util.NodeReplacementModeReadiness}
+
+	agentFlags := startupParametersToAgentFlag(parameters, util.NodeReplacementModeInfraRevision)
+
+	assert.Equal(t, "-logFile="+path.Join(util.PvcMountPathLogs, "automation-agent.log")+",-nodeReplacementMode=infraRevision,", agentFlags.Value)
+	assert.Equal(t, mdbv1.StartupParameters{"nodeReplacementMode": util.NodeReplacementModeReadiness}, parameters,
+		"the user-supplied startup parameters must not be mutated")
+}
+
+func TestAgentNodeReplacementMode(t *testing.T) {
+	newStatefulSet := func(containers ...corev1.Container) appsv1.StatefulSet {
+		return appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: containers}}}}
+	}
+	agentContainer := func(envVars ...corev1.EnvVar) corev1.Container {
+		return corev1.Container{Name: util.AgentContainerName, Env: envVars}
+	}
+	agentFlags := func(value string) corev1.EnvVar {
+		return corev1.EnvVar{Name: util.AgentFlagsEnv, Value: value}
+	}
+
+	tests := []struct {
+		name         string
+		sts          appsv1.StatefulSet
+		expectedMode string
+	}{
+		{
+			name:         "infraRevision",
+			sts:          newStatefulSet(agentContainer(agentFlags("-logFile=/tmp/agent.log,-nodeReplacementMode=infraRevision,"))),
+			expectedMode: util.NodeReplacementModeInfraRevision,
+		},
+		{
+			name:         "readiness",
+			sts:          newStatefulSet(agentContainer(agentFlags("-logFile=/tmp/agent.log,-nodeReplacementMode=readiness,"))),
+			expectedMode: util.NodeReplacementModeReadiness,
+		},
+		{
+			name: "flag absent",
+			sts:  newStatefulSet(agentContainer(agentFlags("-logFile=/tmp/agent.log,"))),
+		},
+		{
+			name: "agent flags env absent",
+			sts:  newStatefulSet(agentContainer()),
+		},
+		{
+			name: "agent container absent",
+			sts:  newStatefulSet(corev1.Container{Name: util.DatabaseContainerName}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMode, AgentNodeReplacementMode(tt.sts))
+		})
+	}
+}
+
+// agentContainer returns the agent container of the StatefulSet's pod template, or the database
+// container in non-static architecture where the agent runs in place of the database.
+func agentContainer(t *testing.T, sts appsv1.StatefulSet) corev1.Container {
+	t.Helper()
+
+	var found []corev1.Container
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if len(envVarsNamed(c.Env, util.AgentFlagsEnv)) > 0 {
+			found = append(found, c)
+		}
+	}
+	require.Len(t, found, 1, "exactly one container must carry %s", util.AgentFlagsEnv)
+
+	return found[0]
+}
+
 func envVarsNamed(envVars []corev1.EnvVar, name string) []corev1.EnvVar {
 	return slices.DeleteFunc(slices.Clone(envVars), func(envVar corev1.EnvVar) bool {
 		return envVar.Name != name

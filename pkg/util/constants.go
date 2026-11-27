@@ -76,6 +76,12 @@ const (
 	EnvVarCustomAgentURL   = "MDB_CUSTOM_AGENT_URL"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 	InfraRevisionEnv       = "INFRA_REVISION"
+	AgentFlagsEnv          = "AGENT_FLAGS"
+
+	// AgentFlagNodeReplacementMode selects how the agent decides a pod is ready for replacement.
+	AgentFlagNodeReplacementMode     = "nodeReplacementMode"
+	NodeReplacementModeInfraRevision = "infraRevision"
+	NodeReplacementModeReadiness     = "readiness"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
 	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"

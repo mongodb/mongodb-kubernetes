@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -611,7 +612,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	// Static-ga replica sets are only ever replaced pod by pod by the operator; the zero value leaves the default.
 	var updateStrategyType appsv1.StatefulSetUpdateStrategyType
-	if architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) && opts.StsType == ReplicaSet {
+	if agentNodeReplacementMode(mdb, opts) == util.NodeReplacementModeInfraRevision {
 		updateStrategyType = appsv1.OnDeleteStatefulSetStrategyType
 	}
 
@@ -818,7 +819,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
-		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters, agentNodeReplacementMode(mdb, opts))),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
@@ -891,7 +892,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithVolumeMounts(volumeMounts),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
-		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters, "")),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
@@ -957,11 +958,43 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 	)
 }
 
+// agentNodeReplacementMode returns the nodeReplacementMode the operator passes to the agent.
+// Only static-ga StatefulSets get the flag: replica sets are replaced by the operator's
+// infra-revision handshake, the other tiers do not need it and the agent rejects unknown flags.
+func agentNodeReplacementMode(mdb databaseStatefulSetSource, opts DatabaseStatefulSetOptions) string {
+	if !architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
+		return ""
+	}
+	if opts.StsType == ReplicaSet {
+		return util.NodeReplacementModeInfraRevision
+	}
+	return util.NodeReplacementModeReadiness
+}
+
+// AgentNodeReplacementMode returns the nodeReplacementMode the StatefulSet's agent container is
+// started with, or "" when the flag is absent.
+func AgentNodeReplacementMode(sts appsv1.StatefulSet) string {
+	agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+		return c.Name == util.AgentContainerName
+	})
+	if agentIdx < 0 {
+		return ""
+	}
+
+	flagPrefix := "-" + util.AgentFlagNodeReplacementMode + "="
+	for _, flag := range strings.Split(env.ToMap(sts.Spec.Template.Spec.Containers[agentIdx].Env...)[util.AgentFlagsEnv], ",") {
+		if value, ok := strings.CutPrefix(flag, flagPrefix); ok {
+			return value
+		}
+	}
+	return ""
+}
+
 // StartupParametersToAgentFlag takes a map representing key-value pairs
 // of startup parameters
 // and concatenates them into a single string that is then
 // returned as env variable AGENT_FLAGS
-func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
+func startupParametersToAgentFlag(parameters mdbv1.StartupParameters, nodeReplacementMode string) corev1.EnvVar {
 	var agentParams strings.Builder
 	finalParameters := mdbv1.StartupParameters{}
 	// add default parameters if not already set
@@ -972,6 +1005,10 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 		}
 	}
 	maps.Copy(finalParameters, parameters)
+	// The operator picks the node replacement mode; a user-supplied startup option must not override it.
+	if nodeReplacementMode != "" {
+		finalParameters[util.AgentFlagNodeReplacementMode] = nodeReplacementMode
+	}
 	// sort the parameters by key
 	keys := make([]string, 0, len(finalParameters))
 	for k := range finalParameters {
@@ -984,7 +1021,7 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 		agentParams.WriteString("-" + key + "=" + finalParameters[key] + ",")
 	}
 
-	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams.String()}
+	return corev1.EnvVar{Name: util.AgentFlagsEnv, Value: agentParams.String()}
 }
 
 // readinessEnvironmentVariablesToEnvVars returns the environment variables to bet set in the readinessProbe container

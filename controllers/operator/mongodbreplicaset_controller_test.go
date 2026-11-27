@@ -2925,3 +2925,58 @@ func TestLookupCorrespondingSearchResource_AuthGate(t *testing.T) {
 		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("SCRAM-SHA-256")), newSearch(false)))
 	})
 }
+
+func TestValidateStaticGAStatefulSet(t *testing.T) {
+	agentEnv := func(agentFlags string) []corev1.EnvVar {
+		return []corev1.EnvVar{{Name: util.AgentFlagsEnv, Value: agentFlags}}
+	}
+	newStatefulSet := func(strategy appsv1.StatefulSetUpdateStrategyType, env []corev1.EnvVar) appsv1.StatefulSet {
+		return appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: strategy},
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{
+				{Name: util.AgentContainerName, Env: env},
+			}}},
+		}}
+	}
+
+	expectedError := fmt.Sprintf("static-ga replica set requires update strategy OnDelete and agent flag %s=%s",
+		util.AgentFlagNodeReplacementMode, util.NodeReplacementModeInfraRevision)
+	infraRevisionEnv := agentEnv("-logFile=/tmp/agent.log,-nodeReplacementMode=infraRevision,")
+
+	tests := []struct {
+		name          string
+		sts           appsv1.StatefulSet
+		expectedError string
+	}{
+		{
+			name: "OnDelete with the infraRevision flag",
+			sts:  newStatefulSet(appsv1.OnDeleteStatefulSetStrategyType, infraRevisionEnv),
+		},
+		{
+			name:          "OnDelete without the flag",
+			sts:           newStatefulSet(appsv1.OnDeleteStatefulSetStrategyType, agentEnv("-logFile=/tmp/agent.log,")),
+			expectedError: expectedError,
+		},
+		{
+			name:          "infraRevision flag with RollingUpdate",
+			sts:           newStatefulSet(appsv1.RollingUpdateStatefulSetStrategyType, infraRevisionEnv),
+			expectedError: expectedError,
+		},
+		{
+			name:          "readiness flag with OnDelete",
+			sts:           newStatefulSet(appsv1.OnDeleteStatefulSetStrategyType, agentEnv("-logFile=/tmp/agent.log,-nodeReplacementMode=readiness,")),
+			expectedError: expectedError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateStaticGAStatefulSet(tt.sts)
+			if tt.expectedError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.expectedError)
+		})
+	}
+}

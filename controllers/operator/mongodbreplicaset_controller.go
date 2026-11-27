@@ -584,6 +584,13 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 
+	// A user StatefulSetSpec or pod template override is merged after construction and can silently bypass the handshake.
+	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		if err := validateStaticGAStatefulSet(sts); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -615,6 +622,17 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 
 	log.Info("Updated StatefulSet for replica set")
 	return workflow.OK()
+}
+
+// validateStaticGAStatefulSet rejects a static-ga replica set StatefulSet that would either roll
+// pods without the agent handshake or handshake under a strategy that never replaces pods.
+func validateStaticGAStatefulSet(sts appsv1.StatefulSet) error {
+	if sts.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType &&
+		construct.AgentNodeReplacementMode(sts) == util.NodeReplacementModeInfraRevision {
+		return nil
+	}
+	return xerrors.Errorf("static-ga replica set requires update strategy OnDelete and agent flag %s=%s",
+		util.AgentFlagNodeReplacementMode, util.NodeReplacementModeInfraRevision)
 }
 
 // publishDesiredInfraRevision publishes the StatefulSet revision that the agents should converge to.

@@ -105,6 +105,18 @@ def test_statefulset_uses_on_delete_update_strategy(replica_set: MongoDB):
     )
 
 
+@mark.e2e_om_static_ga_infra_revision
+def test_agent_uses_infra_revision_node_replacement_mode(replica_set: MongoDB):
+    containers = replica_set.read_statefulset().spec.template.spec.containers
+    agent_container = next(container for container in containers if container.name == AGENT_CONTAINER_NAME)
+    agent_flags = next(env_var.value for env_var in agent_container.env if env_var.name == "AGENT_FLAGS")
+    # The infraRevision handshake makes the agent park the member until the operator publishes the new revision.
+    assert "-nodeReplacementMode=infraRevision" in agent_flags.split(","), (
+        f"mongodb-agent AGENT_FLAGS is {agent_flags!r}, "
+        "static-ga members must use the infraRevision node replacement mode"
+    )
+
+
 def assert_infra_revisions_match(replica_set: MongoDB, namespace: str) -> str:
     """Asserts that each member's INFRA_REVISION, the automation config desiredInfraRevision and the StatefulSet
     status.updateRevision agree, and returns that revision."""
