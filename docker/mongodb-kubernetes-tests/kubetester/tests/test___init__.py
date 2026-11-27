@@ -179,16 +179,25 @@ class TestStaticGAArchitecture(unittest.TestCase):
                 self.assertEqual(get_migration_target_architecture(), expected)
                 self.assertEqual(_static_container_skip_marker().mark.args[0], skipped)
 
-    def test_static_to_static_ga_is_not_a_variant_default_pair(self):
-        """The variant default never produces static to static-ga, so that migration names its target.
+    def test_supported_transitions_never_start_from_static_ga(self):
+        """static-ga is a target in every supported transition, never a source.
 
-        The migration tests pin their start to legacy static and then walk static to static-ga to non-static.
-        The first hop needs an explicit target, which get_static_ga_migration_target() supplies. The second
-        hop is the variant default for legacy static, so it needs no helper.
+        The supported set is static to static-ga, non-static to static-ga and non-static to static. The
+        variant default produces only two of them, so the migration tests name the target explicitly and
+        split the pairs across variants: no single resource can walk all three.
         """
         self.assertEqual(get_static_ga_migration_target(), "static-ga")
-        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static"}):
-            self.assertNotEqual(get_migration_target_architecture(), get_static_ga_migration_target())
+
+        supported = {("static", "static-ga"), ("non-static", "static-ga"), ("non-static", "static")}
+        self.assertFalse([pair for pair in supported if pair[0] == "static-ga"])
+
+        # Only the non-static default produces a supported pair. The static and static-ga defaults derive
+        # non-static, which is not a supported transition, so the migration tests name their target instead
+        # of calling get_migration_target_architecture().
+        for current, is_supported in (("non-static", True), ("static", False), ("static-ga", False)):
+            with self.subTest(current=current), patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": current}):
+                pair = (current, get_migration_target_architecture())
+                self.assertEqual(pair in supported, is_supported, pair)
 
     def test_architecture_assertion_distinguishes_proxy_and_non_static(self):
         cases = (
