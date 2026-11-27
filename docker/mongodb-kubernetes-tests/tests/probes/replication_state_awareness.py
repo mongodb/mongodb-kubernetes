@@ -70,8 +70,8 @@ def create_writing_tasks(
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
-    resource = generic_replicaset(namespace, version="4.4.2")
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = generic_replicaset(namespace, version=custom_mdb_version)
     resource["spec"]["persistent"] = True
     try_load(resource)
     return resource
