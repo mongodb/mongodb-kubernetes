@@ -638,6 +638,25 @@ spec:
                                   x-kubernetes-preserve-unknown-fields: true
                               type: object
                           type: object
+                        internalConnectivity:
+                          description: |-
+                            InternalConnectivity customizes this member cluster's internal Services. It is merged on top
+                            of the top-level spec.internalConnectivity and the per-component (spec.shard/configSrv/mongos)
+                            values (per annotation key, the most specific entry wins).
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is a map of annotations merged onto the internal Services created by the operator.
+                                The operator merges these annotations onto the Services at creation and reconcile time and
+                                preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                                substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                                Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                                {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                                from shared headless Services.
+                              type: object
+                          type: object
                         memberConfig:
                           description: MemberConfig allows to specify votes, priorities
                             and tags for each of the mongodb process.
@@ -768,6 +787,25 @@ spec:
                             description: A wrapper for the Service spec object.
                             type: object
                             x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
+                  internalConnectivity:
+                    description: |-
+                      InternalConnectivity customizes this component's internal Services. It is merged on top of
+                      the top-level spec.internalConnectivity value (per annotation key, the most specific entry
+                      wins); per-member-cluster entries in ClusterSpecList merge on top of this one.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is a map of annotations merged onto the internal Services created by the operator.
+                          The operator merges these annotations onto the Services at creation and reconcile time and
+                          preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                          substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                          Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                          {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                          from shared headless Services.
                         type: object
                     type: object
                 type: object
@@ -931,6 +969,26 @@ spec:
                 type: array
               featureCompatibilityVersion:
                 type: string
+              internalConnectivity:
+                description: |-
+                  InternalConnectivityConfiguration customizes the internal (headless) Services the operator
+                  creates for this MongoDB resource. Per-component (spec.shard, spec.configSrv, spec.mongos)
+                  and per-member-cluster (clusterSpecList[]) entries are merged on top of this one; more
+                  specific entries win on annotation key conflicts.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Annotations is a map of annotations merged onto the internal Services created by the operator.
+                      The operator merges these annotations onto the Services at creation and reconcile time and
+                      preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                      substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                      Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                      {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                      from shared headless Services.
+                    type: object
+                type: object
               logLevel:
                 enum:
                 - DEBUG
@@ -1195,6 +1253,25 @@ spec:
                                   x-kubernetes-preserve-unknown-fields: true
                               type: object
                           type: object
+                        internalConnectivity:
+                          description: |-
+                            InternalConnectivity customizes this member cluster's internal Services. It is merged on top
+                            of the top-level spec.internalConnectivity and the per-component (spec.shard/configSrv/mongos)
+                            values (per annotation key, the most specific entry wins).
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is a map of annotations merged onto the internal Services created by the operator.
+                                The operator merges these annotations onto the Services at creation and reconcile time and
+                                preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                                substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                                Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                                {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                                from shared headless Services.
+                              type: object
+                          type: object
                         memberConfig:
                           description: MemberConfig allows to specify votes, priorities
                             and tags for each of the mongodb process.
@@ -1325,6 +1402,25 @@ spec:
                             description: A wrapper for the Service spec object.
                             type: object
                             x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
+                  internalConnectivity:
+                    description: |-
+                      InternalConnectivity customizes this component's internal Services. It is merged on top of
+                      the top-level spec.internalConnectivity value (per annotation key, the most specific entry
+                      wins); per-member-cluster entries in ClusterSpecList merge on top of this one.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is a map of annotations merged onto the internal Services created by the operator.
+                          The operator merges these annotations onto the Services at creation and reconcile time and
+                          preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                          substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                          Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                          {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                          from shared headless Services.
                         type: object
                     type: object
                 type: object
@@ -2075,6 +2171,25 @@ spec:
                                   x-kubernetes-preserve-unknown-fields: true
                               type: object
                           type: object
+                        internalConnectivity:
+                          description: |-
+                            InternalConnectivity customizes this member cluster's internal Services. It is merged on top
+                            of the top-level spec.internalConnectivity and the per-component (spec.shard/configSrv/mongos)
+                            values (per annotation key, the most specific entry wins).
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations is a map of annotations merged onto the internal Services created by the operator.
+                                The operator merges these annotations onto the Services at creation and reconcile time and
+                                preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                                substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                                Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                                {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                                from shared headless Services.
+                              type: object
+                          type: object
                         memberConfig:
                           description: MemberConfig allows to specify votes, priorities
                             and tags for each of the mongodb process.
@@ -2205,6 +2320,25 @@ spec:
                             description: A wrapper for the Service spec object.
                             type: object
                             x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
+                  internalConnectivity:
+                    description: |-
+                      InternalConnectivity customizes this component's internal Services. It is merged on top of
+                      the top-level spec.internalConnectivity value (per annotation key, the most specific entry
+                      wins); per-member-cluster entries in ClusterSpecList merge on top of this one.
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is a map of annotations merged onto the internal Services created by the operator.
+                          The operator merges these annotations onto the Services at creation and reconcile time and
+                          preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+                          substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+                          Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+                          {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+                          from shared headless Services.
                         type: object
                     type: object
                 type: object

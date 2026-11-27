@@ -88,6 +88,12 @@ type ShardedClusterComponentSpec struct {
 	// previous behaviour exactly.
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+
+	// InternalConnectivity customizes this component's internal Services. It is merged on top of
+	// the top-level spec.internalConnectivity value (per annotation key, the most specific entry
+	// wins); per-member-cluster entries in ClusterSpecList merge on top of this one.
+	// +optional
+	InternalConnectivity *InternalConnectivityConfiguration `json:"internalConnectivity,omitempty"`
 }
 
 type ShardedClusterComponentOverrideSpec struct {

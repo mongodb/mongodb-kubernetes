@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -353,6 +354,11 @@ type ClusterSpecItem struct {
 	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+	// InternalConnectivity customizes this member cluster's internal Services. It is merged on top
+	// of the top-level spec.internalConnectivity and the per-component (spec.shard/configSrv/mongos)
+	// values (per annotation key, the most specific entry wins).
+	// +optional
+	InternalConnectivity *InternalConnectivityConfiguration `json:"internalConnectivity,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
 	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
@@ -585,6 +591,13 @@ type MongoDbSpec struct {
 	// Amount of members for this MongoDB Replica Set
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+
+	// InternalConnectivityConfiguration customizes the internal (headless) Services the operator
+	// creates for this MongoDB resource. Per-component (spec.shard, spec.configSrv, spec.mongos)
+	// and per-member-cluster (clusterSpecList[]) entries are merged on top of this one; more
+	// specific entries win on annotation key conflicts.
+	// +optional
+	InternalConnectivity *InternalConnectivityConfiguration `json:"internalConnectivity,omitempty"`
 	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
@@ -2056,6 +2069,21 @@ type ExternalServiceConfiguration struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// InternalConnectivityConfiguration holds customizations for the internal (headless) Services
+// the operator creates for MongoDB pods (e.g. "<pod>-svc" per-pod Services in multi-cluster
+// topologies and the shared "<name>-svc" headless Service in single-cluster topologies).
+type InternalConnectivityConfiguration struct {
+	// Annotations is a map of annotations merged onto the internal Services created by the operator.
+	// The operator merges these annotations onto the Services at creation and reconcile time and
+	// preserves annotations applied by other tools. Annotations support the same per-pod placeholder
+	// substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+	// Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+	// {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+	// from shared headless Services.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {
 	transportSecurity := TransportSecurityNone
 	if mdbLdap.TransportSecurity != nil && strings.ToLower(string(*mdbLdap.TransportSecurity)) != "none" {
@@ -2396,6 +2424,16 @@ func (m ClusterSpecList) GetExternalAccessConfigurationForMemberCluster(clusterN
 	return nil
 }
 
+func (m ClusterSpecList) GetInternalConnectivityConfigurationForMemberCluster(clusterName string) *InternalConnectivityConfiguration {
+	for _, csl := range m {
+		if csl.ClusterName == clusterName {
+			return csl.InternalConnectivity
+		}
+	}
+
+	return nil
+}
+
 func (m ClusterSpecList) GetExternalDomainForMemberCluster(clusterName string) *string {
 	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
 		return cfg.ExternalDomain
@@ -2466,4 +2504,34 @@ func (m *MongoDbSpec) EffectiveExternalDomain(component *ShardedClusterComponent
 	}
 
 	return nil
+}
+
+// EffectiveInternalConnectivityAnnotations returns the annotations in force for one component
+// of the resource in one member cluster, merging (per key, more specific wins):
+//  1. spec.internalConnectivity.annotations  (top level)
+//  2. component.InternalConnectivity.Annotations (spec.shard/configSrv/mongos), when component != nil
+//  3. component.ClusterSpecList[<memberClusterName>].InternalConnectivity.Annotations
+//
+// Unlike EffectiveExternalAccessConfiguration there is no single-cluster mongos-only restriction:
+// the top-level value applies to all internal Services of the resource. Returns nil when no
+// annotations are configured at any level.
+func (m *MongoDbSpec) EffectiveInternalConnectivityAnnotations(component *ShardedClusterComponentSpec, memberClusterName string) map[string]string {
+	var topLevel map[string]string
+	if m.InternalConnectivity != nil {
+		topLevel = m.InternalConnectivity.Annotations
+	}
+
+	// Replica sets (component == nil) have no per-component level, and in the MongoDB kind
+	// multi-cluster topologies are sharded-only, so there is no clusterSpecList to consult here.
+	var moreSpecific map[string]string
+	if component != nil {
+		if component.InternalConnectivity != nil {
+			moreSpecific = component.InternalConnectivity.Annotations
+		}
+		if cfg := component.ClusterSpecList.GetInternalConnectivityConfigurationForMemberCluster(memberClusterName); cfg != nil {
+			moreSpecific = merge.StringToStringMap(moreSpecific, cfg.Annotations)
+		}
+	}
+
+	return merge.StringToStringMap(topLevel, moreSpecific)
 }

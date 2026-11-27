@@ -1106,6 +1106,147 @@ func TestEffectiveExternalAccessConfiguration(t *testing.T) {
 	}
 }
 
+func TestEffectiveInternalConnectivityAnnotations(t *testing.T) {
+	topLevel := &InternalConnectivityConfiguration{Annotations: map[string]string{
+		"shared":   "top-level",
+		"override": "top-level",
+	}}
+	perTier := &InternalConnectivityConfiguration{Annotations: map[string]string{
+		"tier":     "component",
+		"override": "component",
+	}}
+	perCluster := &InternalConnectivityConfiguration{Annotations: map[string]string{
+		"cluster":  "member-cluster",
+		"override": "member-cluster",
+	}}
+
+	tests := []struct {
+		name              string
+		topology          string
+		topLevel          *InternalConnectivityConfiguration
+		component         *ShardedClusterComponentSpec
+		memberClusterName string
+		expected          map[string]string
+	}{
+		{
+			name:              "nothing configured yields nil",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          nil,
+			component:         nil,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          nil,
+		},
+		{
+			name:              "nothing configured yields nil in multi-cluster",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          nil,
+			component:         &ShardedClusterComponentSpec{},
+			memberClusterName: "cluster-1",
+			expected:          nil,
+		},
+		{
+			name:              "top-level only in single-cluster",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{},
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          map[string]string{"shared": "top-level", "override": "top-level"},
+		},
+		{
+			name:              "top-level applies to all components in single-cluster",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{InternalConnectivity: nil},
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          map[string]string{"shared": "top-level", "override": "top-level"},
+		},
+		{
+			name:              "top-level only in multi-cluster",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{},
+			memberClusterName: "cluster-1",
+			expected:          map[string]string{"shared": "top-level", "override": "top-level"},
+		},
+		{
+			name:     "component merges over top-level and wins on conflict",
+			topology: ClusterTopologySingleCluster,
+			topLevel: topLevel,
+			component: &ShardedClusterComponentSpec{
+				InternalConnectivity: perTier,
+			},
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          map[string]string{"shared": "top-level", "tier": "component", "override": "component"},
+		},
+		{
+			name:     "clusterSpecList item merges over top-level and component and wins on conflict",
+			topology: ClusterTopologyMultiCluster,
+			topLevel: topLevel,
+			component: &ShardedClusterComponentSpec{
+				InternalConnectivity: perTier,
+				ClusterSpecList: ClusterSpecList{
+					{ClusterName: "cluster-1", Members: 3, InternalConnectivity: perCluster},
+					{ClusterName: "cluster-2", Members: 2},
+				},
+			},
+			memberClusterName: "cluster-1",
+			expected: map[string]string{
+				"shared":   "top-level",
+				"tier":     "component",
+				"cluster":  "member-cluster",
+				"override": "member-cluster",
+			},
+		},
+		{
+			name:     "clusterSpecList item for a different cluster is ignored",
+			topology: ClusterTopologyMultiCluster,
+			topLevel: topLevel,
+			component: &ShardedClusterComponentSpec{
+				InternalConnectivity: perTier,
+				ClusterSpecList: ClusterSpecList{
+					{ClusterName: "cluster-1", Members: 3, InternalConnectivity: perCluster},
+					{ClusterName: "cluster-2", Members: 2},
+				},
+			},
+			memberClusterName: "cluster-2",
+			expected:          map[string]string{"shared": "top-level", "tier": "component", "override": "component"},
+		},
+		{
+			name:              "replica set path with nil component honours top-level only",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         nil,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          map[string]string{"shared": "top-level", "override": "top-level"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &MongoDbSpec{
+				DbCommonSpec: DbCommonSpec{
+					Topology: tt.topology,
+				},
+				InternalConnectivity: tt.topLevel,
+			}
+
+			assert.Equal(t, tt.expected, spec.EffectiveInternalConnectivityAnnotations(tt.component, tt.memberClusterName))
+		})
+	}
+}
+
+func TestClusterSpecListGetInternalConnectivityConfigurationForMemberCluster(t *testing.T) {
+	cfg := &InternalConnectivityConfiguration{Annotations: map[string]string{"a": "b"}}
+	list := ClusterSpecList{
+		{ClusterName: "cluster-1", Members: 3, InternalConnectivity: cfg},
+		{ClusterName: "cluster-2", Members: 2},
+	}
+
+	assert.Equal(t, cfg, list.GetInternalConnectivityConfigurationForMemberCluster("cluster-1"))
+	assert.Nil(t, list.GetInternalConnectivityConfigurationForMemberCluster("cluster-2"))
+	assert.Nil(t, list.GetInternalConnectivityConfigurationForMemberCluster("unknown"))
+}
+
 // TestBuildConnectionString_ShardedClusterPerTierExternalDomain covers a sharded cluster that sets the
 // external domain only on spec.mongos.externalAccess: both connection strings are built from the
 // mongos tier, so they must honour the per-tier field and not fall back to the internal service FQDN.
