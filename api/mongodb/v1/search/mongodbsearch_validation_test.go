@@ -237,6 +237,50 @@ func TestValidateX509AuthConfig(t *testing.T) {
 	}
 }
 
+func TestValidateCRLFileConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		searchSource  *MongoDBSource
+		errorContains string
+	}{
+		{
+			name:         "no source configured",
+			searchSource: nil,
+		},
+		{
+			name:         "crlFile unset",
+			searchSource: &MongoDBSource{},
+		},
+		{
+			name:         "crlFile is a plain ConfigMap key",
+			searchSource: &MongoDBSource{CRLFile: "crl.pem"},
+		},
+		{
+			name:          "crlFile is a path",
+			searchSource:  &MongoDBSource{CRLFile: "/etc/crl.pem"},
+			errorContains: "spec.source.crlFile must be a ConfigMap key, not a path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			search := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+				Spec:       MongoDBSearchSpec{Source: tt.searchSource},
+			}
+
+			result := validateCRLFileConfig(search)
+
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, result.Level)
+			}
+		})
+	}
+}
+
 func TestValidateOIDCAuthConfig(t *testing.T) {
 	validOIDC := func() *OIDCAuth {
 		return &OIDCAuth{

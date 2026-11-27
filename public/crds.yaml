@@ -6381,6 +6381,11 @@ spec:
                 description: Source is the MongoDB database that MongoDB Search syncs
                   from to build its indexes.
                 properties:
+                  crlFile:
+                    description: |-
+                      CRLFile names the certificate revocation list file (a key in the source
+                      MongoDB's TLS CA ConfigMap) that mongot uses to reject revoked certificates.
+                    type: string
                   external:
                     description: |-
                       ExternalMongoDBSource describes a MongoDB deployment the operator does not manage.
