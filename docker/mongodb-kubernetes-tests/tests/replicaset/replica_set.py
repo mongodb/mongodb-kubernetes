@@ -604,6 +604,7 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
             "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
             "MULTI_CLUSTER_MODE",
+            "MDB_CUSTOM_AGENT_URL",
             "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
             "MDB_LOG_FILE_AUTOMATION_AGENT",
             "MDB_LOG_FILE_MONITORING_AGENT",
