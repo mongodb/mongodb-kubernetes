@@ -12,6 +12,10 @@ case ${IMAGE_NAME} in
     # For agent: version can be "all", "current", or explicit version (requires TOOLS_VERSION)
     # AGENT_VERSION_OVERRIDE takes precedence, then AGENT_VERSION from context.
     IMAGE_VERSION="${AGENT_VERSION_OVERRIDE:-${AGENT_VERSION:-}}"
+    # Isolated builds never skip existing tags; rebuilding every agent in release.json would be too slow.
+    if [[ "${ISOLATED_IMAGE_NAMESPACE:-}" != "" && "${IMAGE_VERSION}" == "all" ]]; then
+      IMAGE_VERSION="current"
+    fi
     ;;
 
   "ops-manager")
@@ -52,6 +56,12 @@ fi
 # Pass custom OM tarball URL if set (for testing custom Ops Manager builds)
 if [[ "${OM_DOWNLOAD_URL:-}" != "" ]]; then
     args+=(--om-download-url "${OM_DOWNLOAD_URL}")
+fi
+
+# Agent and Ops Manager images are tagged by their own version and reused across patches and branches (skip-if-exists),
+# so Dockerfile changes are only built and consumed in isolation (see scripts/dev/contexts/isolated-image-namespace.sh).
+if [[ "${ISOLATED_IMAGE_NAMESPACE:-}" != "" && ( "${IMAGE_NAME}" == "agent" || "${IMAGE_NAME}" == "ops-manager" ) ]]; then
+    args+=(--isolated-namespace "${ISOLATED_IMAGE_NAMESPACE}")
 fi
 
 if [[ "${FLAGS:-}" != "" ]]; then
