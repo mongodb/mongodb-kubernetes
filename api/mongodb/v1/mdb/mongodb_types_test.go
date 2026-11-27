@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -37,6 +38,27 @@ func TestOpsManagerDeploymentName(t *testing.T) {
 			assert.Equal(t, tc.want, m.OpsManagerDeploymentName())
 			assert.Equal(t, "uid-1", m.TelemetryIdentifier())
 		})
+	}
+}
+
+func TestDeploymentTopology(t *testing.T) {
+	for _, resourceType := range []ResourceType{ReplicaSet, ShardedCluster, Standalone} {
+		for _, topology := range []string{"", ClusterTopologySingleCluster, ClusterTopologyMultiCluster} {
+			if resourceType == Standalone && topology == ClusterTopologyMultiCluster {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/%s", resourceType, topology), func(t *testing.T) {
+				deployment := &MongoDB{Spec: MongoDbSpec{
+					DbCommonSpec: DbCommonSpec{ResourceType: resourceType},
+				}}
+				deployment.Spec.Topology = topology
+				want := v1.DeploymentTopologySingleCluster
+				if topology == ClusterTopologyMultiCluster {
+					want = v1.DeploymentTopologyMultiCluster
+				}
+				assert.Equal(t, want, deployment.DeploymentTopology())
+			})
+		}
 	}
 }
 

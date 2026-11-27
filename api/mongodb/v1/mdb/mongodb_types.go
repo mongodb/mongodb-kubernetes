@@ -61,8 +61,8 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	ClusterTopologySingleCluster = "SingleCluster"
-	ClusterTopologyMultiCluster  = "MultiCluster"
+	ClusterTopologySingleCluster string = string(v1.DeploymentTopologySingleCluster)
+	ClusterTopologyMultiCluster  string = string(v1.DeploymentTopologyMultiCluster)
 
 	OIDCAuthorizationTypeGroupMembership = "GroupMembership"
 	OIDCAuthorizationTypeUserID          = "UserID"
@@ -272,6 +272,13 @@ func (m *MongoDB) GetReplicaSetName() string {
 
 func (m *MongoDB) TelemetryIdentifier() string {
 	return string(m.UID)
+}
+
+func (m *MongoDB) DeploymentTopology() v1.DeploymentTopology {
+	if m.Spec.IsMultiCluster() {
+		return v1.DeploymentTopologyMultiCluster
+	}
+	return v1.DeploymentTopologySingleCluster
 }
 
 // OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:

@@ -3,9 +3,12 @@ package ommetrics
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
 const deploymentMappingsAttributeKey = "mongodb.opsmanager.mck.deployment.mappings"
@@ -14,20 +17,29 @@ const deploymentMappingsAttributeKey = "mongodb.opsmanager.mck.deployment.mappin
 type MongoDBDeployment interface {
 	TelemetryIdentifier() string
 	OpsManagerDeploymentName() string
+	DeploymentTopology() v1.DeploymentTopology
 }
 
 type mckDeploymentMapping struct {
-	MCKDeploymentUID string `json:"mckDeploymentUid"`
-	DeploymentName   string `json:"deploymentName"`
+	MCKDeploymentUID string                `json:"mckDeploymentUid"`
+	DeploymentName   string                `json:"deploymentName"`
+	Topology         v1.DeploymentTopology `json:"topology"`
 }
 
 func deploymentMappingsAttribute(deployment MongoDBDeployment) (attribute.KeyValue, error) {
 	if v := reflect.ValueOf(deployment); !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
 		return attribute.KeyValue{}, errors.New("deployment is required")
 	}
-	m := mckDeploymentMapping{MCKDeploymentUID: deployment.TelemetryIdentifier(), DeploymentName: deployment.OpsManagerDeploymentName()}
+	m := mckDeploymentMapping{
+		MCKDeploymentUID: deployment.TelemetryIdentifier(),
+		DeploymentName:   deployment.OpsManagerDeploymentName(),
+		Topology:         deployment.DeploymentTopology(),
+	}
 	if m.MCKDeploymentUID == "" || m.DeploymentName == "" {
 		return attribute.KeyValue{}, errors.New("deployment telemetry identifier and automation deployment name are required")
+	}
+	if m.Topology != v1.DeploymentTopologySingleCluster && m.Topology != v1.DeploymentTopologyMultiCluster {
+		return attribute.KeyValue{}, fmt.Errorf("unknown deployment topology %q", m.Topology)
 	}
 	b, err := json.Marshal([]mckDeploymentMapping{m})
 	if err != nil {
