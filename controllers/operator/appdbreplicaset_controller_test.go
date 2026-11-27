@@ -852,6 +852,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(data).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
@@ -897,6 +898,7 @@ func TestTryConfigureMonitoring_PopulatesAgentAPIKey(t *testing.T) {
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
 	require.NoError(t, err)
@@ -1017,6 +1019,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(data).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
@@ -1065,6 +1068,7 @@ func TestTryConfigureMonitoringInOpsManagerWithMalformedCredentials(t *testing.T
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(data).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
@@ -1085,6 +1089,7 @@ func TestTryConfigureMonitoringInOpsManagerWithMalformedCredentials(t *testing.T
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(updatedData).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = reconciler.client.UpdateSecret(ctx, updatedApiKeySecret)
@@ -1120,6 +1125,7 @@ func TestReadExistingPodVars_ReturnsAgentAPIKey(t *testing.T) {
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
 	require.NoError(t, err)
@@ -1160,6 +1166,7 @@ func TestReadExistingPodVars_MissingAgentKeyIsNonFatal(t *testing.T) {
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 	require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
 
@@ -2157,6 +2164,7 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(data).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = reconciler.client.CreateSecret(ctx, apiKeySecret)

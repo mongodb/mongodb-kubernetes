@@ -110,6 +110,8 @@ type: Opaque
 metadata:
   name: <om-namespace>-<om-name>-admin-key
   namespace: <om-namespace>
+  labels:
+    mongodb.com/v1.opsManagerNamespace: <om-namespace>
 stringData:
   publicApiKey: "<your-newly-created-private-api-key>"
   user: "<your-newly-created-public-api-key>"
@@ -118,6 +120,15 @@ EOF
 
 - Please note that the returned `publicKey` corresponds to the `user` entry and
   the `privateKey` corresponds to the `publicApiKey`.
+- The `Secret` itself resides in the Operator's namespace, and it must carry the
+  `mongodb.com/v1.opsManagerNamespace` label set to the namespace of the owning
+  `MongoDBOpsManager` resource. If you instead keep using an old unlabelled
+  `<name>-admin-key` Kubernetes `Secret`, the Operator will not auto-claim it:
+  before migration, verify that the legacy `Secret` belongs to this Ops Manager
+  and add the label to it (or create the namespace-qualified `Secret` with the
+  correct label). Do not add the label blindly — if same-named CRs exist or
+  ownership is ambiguous, confirm which `Secret` actually holds this
+  deployment's credentials first.
 
 # Proceed with the Upgrade
 
