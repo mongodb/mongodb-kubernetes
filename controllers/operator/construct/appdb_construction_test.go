@@ -1,6 +1,7 @@
 package construct
 
 import (
+	"path"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -469,13 +471,14 @@ func TestCustomAgentURL(t *testing.T) {
 
 func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+	t.Setenv(util.MongodbProxyImageEnv, "mongodb-proxy:1.0.0")
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	opts := AppDBStatefulSetOptions{
-		InitAppDBImage:    "init-database:1.0.0",
-		MongodbImage:      "mongodb-enterprise-server:8.0.0",
-		MongodbProxyImage: "mongodb-proxy:1.0.0",
-		CustomAgentURL:    "https://example.com/agent.tar.gz",
+		InitAppDBImage: "init-database:1.0.0",
+		MongodbImage:   "mongodb-enterprise-server:8.0.0",
+		AgentImage:     "example.com/mongodb-agent:release",
+		CustomAgentURL: "https://example.com/agent.tar.gz",
 	}
 	sts, err := AppDbStatefulSet(*om, nil, opts,
 		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
@@ -484,21 +487,17 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 
 	podSpec := sts.Spec.Template.Spec
 	assert.Nil(t, podSpec.ShareProcessNamespace)
-	require.Len(t, podSpec.InitContainers, 1)
-	initContainer := podSpec.InitContainers[0]
-	assert.Equal(t, InitDatabaseContainerName, initContainer.Name)
-	assert.Equal(t, opts.InitAppDBImage, initContainer.Image)
-	assert.True(t, containerMountsVolume(initContainer.VolumeMounts, "agent-scripts"))
+	// Static-ga runs the probes and the launcher from the init-database image, so it needs no init container.
+	assert.Empty(t, podSpec.InitContainers)
 	assert.Equal(t, -1, getContainerIndexByName(podSpec.Containers, util.AgentContainerUtilitiesName))
 
 	agent := findContainerByName(t, podSpec.Containers, util.AgentContainerName)
-	assert.Equal(t, "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
+	assert.Equal(t, opts.AgentImage, agent.Image)
 	agentCommand := agent.Command[len(agent.Command)-1]
 	assert.Contains(t, agentCommand, "-cluster=/var/lib/automation/config/cluster-config.json")
 	assert.Contains(t, agentCommand, "-operatorMode")
 	assert.Contains(t, agentCommand, "-mongodProxyAddress="+MongodbProxyAddress)
-	assert.Contains(t, agentCommand, "-binariesFixedPath="+staticGAAgentToolsPath)
-	assert.NotContains(t, agentCommand, "MDB_MONGOD_ROOT")
+	assert.Contains(t, agentCommand, "-mongodbToolsPath="+staticGAAgentToolsPath)
 	assert.NotContains(t, agentCommand, "-skipMongoStart")
 	assert.NotContains(t, agentCommand, "-mmsBaseUrl")
 	assert.NotContains(t, agentCommand, "-mmsGroupId=")
@@ -507,7 +506,8 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	require.NotNil(t, agent.ReadinessProbe)
 	require.NotNil(t, agent.ReadinessProbe.Exec)
 	assert.Equal(t, []string{staticDatabaseReadinessProbeCmd}, agent.ReadinessProbe.Exec.Command)
-	assert.True(t, containerMountsVolume(agent.VolumeMounts, "agent-scripts"))
+	// Nothing in static-ga reads /opt/scripts.
+	assert.False(t, containerMountsVolume(agent.VolumeMounts, "agent-scripts"))
 
 	database := findContainerByName(t, podSpec.Containers, util.MongodbContainerName)
 	assert.Equal(t, []string{mongodbProxyBinaryPath}, database.Command)
@@ -516,17 +516,38 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	assert.True(t, containerMountsVolume(database.VolumeMounts, mongodbProxySocketVolumeName))
 	assert.True(t, containerMountsVolume(agent.VolumeMounts, mongodbProxySocketVolumeName))
 
+	require.NotNil(t, podSpec.TerminationGracePeriodSeconds)
+	assert.Equal(t, int64(util.DefaultPodTerminationPeriodSeconds), *podSpec.TerminationGracePeriodSeconds)
+
 	proxyVolume := findVolumeByName(podSpec.Volumes, mongodbProxyVolumeName)
 	require.NotNil(t, proxyVolume)
 	require.NotNil(t, proxyVolume.Image)
-	assert.Equal(t, opts.MongodbProxyImage, proxyVolume.Image.Reference)
+	assert.Equal(t, "mongodb-proxy:1.0.0", proxyVolume.Image.Reference)
 	assert.NotNil(t, findVolumeByName(podSpec.Volumes, mongodbProxySocketVolumeName))
 
-	scriptsVolume := findVolumeByName(podSpec.Volumes, "agent-scripts")
-	require.NotNil(t, scriptsVolume)
-	assert.NotNil(t, scriptsVolume.EmptyDir)
+	assert.Nil(t, findVolumeByName(podSpec.Volumes, "agent-scripts"))
 
 	assert.True(t, containerMountsVolume(agent.VolumeMounts, "automation-config"))
+}
+
+func TestAppDbStatefulSet_StaticGARunsTheProxy(t *testing.T) {
+	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+	t.Setenv(util.MongodbProxyImageEnv, "mongodb-proxy:1.0.0")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	opts := AppDBStatefulSetOptions{
+		InitAppDBImage: "init-database:1.0.0",
+		MongodbImage:   "mongodb-enterprise-server:8.0.0",
+		AgentImage:     "example.com/mongodb-agent:release",
+	}
+
+	sts, err := AppDbStatefulSet(*om, nil, opts,
+		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType, architectures.StaticGA, zap.S())
+	require.NoError(t, err)
+	assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	assert.Contains(t, agent.Command[len(agent.Command)-1], "-mongodProxyAddress="+MongodbProxyAddress)
+	assert.NotNil(t, findVolumeByName(sts.Spec.Template.Spec.Volumes, mongodbProxyVolumeName))
 }
 
 func TestAppDbStatefulSet_LegacyStaticPreservesSharedProcessNamespace(t *testing.T) {
@@ -605,8 +626,8 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.Contains(t, cmd[2], "-cluster="+appdbClusterFilePath)
 		assert.Contains(t, cmd[2], "-operatorMode")
 		assert.Contains(t, cmd[2], "-mongodProxyAddress="+MongodbProxyAddress)
-		assert.Contains(t, cmd[2], "-binariesFixedPath="+staticGAAgentToolsPath)
-		assert.NotContains(t, cmd[2], "MDB_MONGOD_ROOT")
+		assert.Contains(t, cmd[2], "-mongodbToolsPath="+staticGAAgentToolsPath)
+		assert.NotContains(t, cmd[2], "-binariesFixedPath=")
 		assert.NotContains(t, cmd[2], "-skipMongoStart")
 		assert.NotContains(t, cmd[2], "-mmsBaseUrl")
 	})
@@ -632,6 +653,9 @@ func TestAppDbStatefulSet_StaticMountsInitDatabaseImage(t *testing.T) {
 	require.NotNil(t, agent)
 	assert.Contains(t, agent.VolumeMounts, initDatabaseImageVolumeMount())
 	assert.Equal(t, []string{staticDatabaseReadinessProbeCmd}, agent.ReadinessProbe.Exec.Command)
+	// Legacy static still mounts /opt/scripts, so the volume it mounts must be in the pod.
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, "agent-scripts"))
+	assert.NotNil(t, findVolumeByName(spec.Volumes, "agent-scripts"))
 }
 
 func TestAppDbStatefulSet_StaticIgnoresHolderContainerInPodTemplate(t *testing.T) {
@@ -721,4 +745,50 @@ func TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates(t *testing.T
 		sts := buildStatefulSet(t, om)
 		assertNoClaimLabels(t, sts, 3)
 	})
+}
+
+func TestAppDbStatefulSet_ProxyTailsTheMongodLogFile(t *testing.T) {
+	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+	t.Setenv(util.MongodbProxyImageEnv, "mongodb-proxy:1.0.0")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	opts := AppDBStatefulSetOptions{
+		InitAppDBImage: "init-database:1.0.0",
+		MongodbImage:   "mongodb-enterprise-server:8.0.0",
+		AgentImage:     "example.com/mongodb-agent:release",
+	}
+
+	logFile := func(t *testing.T) (corev1.EnvVar, bool) {
+		t.Helper()
+		sts, err := AppDbStatefulSet(*om, nil, opts,
+			scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType, architectures.StaticGA, zap.S())
+		require.NoError(t, err)
+		database := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.MongodbContainerName)
+		for _, variable := range database.Env {
+			if variable.Name == LogFileMongoDBEnv {
+				return variable, true
+			}
+		}
+		return corev1.EnvVar{}, false
+	}
+
+	variable, found := logFile(t)
+	require.True(t, found)
+	assert.Equal(t, path.Join(util.PvcMountPathLogs, "mongodb.log"), variable.Value, "the mongod default log file")
+
+	om.Spec.AppDB.AutomationAgent.SystemLog = &automationconfig.SystemLog{Destination: automationconfig.File, Path: "/deprecated/mongod.log"}
+	variable, found = logFile(t)
+	require.True(t, found)
+	assert.Equal(t, "/deprecated/mongod.log", variable.Value)
+
+	// The mongod systemLog takes precedence over the deprecated one.
+	om.Spec.AppDB.AutomationAgent.Mongod.SystemLog = &automationconfig.SystemLog{Destination: automationconfig.File, Path: "/mongod/system.log"}
+	variable, found = logFile(t)
+	require.True(t, found)
+	assert.Equal(t, "/mongod/system.log", variable.Value)
+
+	// mongod writes no file, so there is nothing to tail.
+	om.Spec.AppDB.AutomationAgent.Mongod.SystemLog = &automationconfig.SystemLog{Destination: automationconfig.Syslog}
+	_, found = logFile(t)
+	assert.False(t, found)
 }

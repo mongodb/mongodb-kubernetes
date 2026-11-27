@@ -9,7 +9,12 @@ check_process() {
 }
 
 check_agent_alive() {
-    check_process 'mongodb-mms-aut'
+    if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}" = "static-ga" ]; then
+        # static-ga runs the Agent binary from the Agent image, at /agent/mongodb-agent.
+        check_process '/agent/mongodb-agent'
+    else
+        check_process 'mongodb-mms-aut'
+    fi
 }
 
 check_mongod_alive() {
@@ -36,4 +41,11 @@ check_mongo_process_alive() {
 # 1. There is an agent process running
 # 2. There is a `mongod` or `mongos` process running
 #
-check_agent_alive || check_mongo_process_alive
+# In static-ga mongod runs in the database container as a child of the mongodb-proxy, so this container can
+# only observe the agent. The proxy command line contains "mongodb-proxy", which would also match the mongod
+# pattern without proving that mongod runs.
+if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}" = "static-ga" ]; then
+    check_agent_alive
+else
+    check_agent_alive || check_mongo_process_alive
+fi

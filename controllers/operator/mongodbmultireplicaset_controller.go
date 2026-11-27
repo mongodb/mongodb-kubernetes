@@ -1094,8 +1094,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithCustomAgentURL(r.customAgentURL),
 
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
-
-			WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithDefaultArchitecture(r.defaultArchitecture),
@@ -1110,6 +1108,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		stsOptions := opts(*mrs)
+		if err := construct.ValidateStaticGADatabaseKeyfileUsers(mrs.GetAnnotations(), r.defaultArchitecture, stsOptions.PodSpec); err != nil {
+			return workflow.Failed(err)
+		}
 		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions, log)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))

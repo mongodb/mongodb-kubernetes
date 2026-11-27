@@ -25,7 +25,7 @@ func socketDir(t *testing.T) string {
 	return dir
 }
 
-func TestListenUnixCreatesASocketOnlyTheOwnerCanUse(t *testing.T) {
+func TestListenUnixCreatesASocketTheContainersShare(t *testing.T) {
 	path := filepath.Join(socketDir(t), "proxy.sock")
 	const incomingMask = 0o777
 	oldMask := syscall.Umask(incomingMask)
@@ -39,7 +39,9 @@ func TestListenUnixCreatesASocketOnlyTheOwnerCanUse(t *testing.T) {
 	info, err := os.Lstat(path)
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode()&os.ModeSocket, "must be a socket")
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	// managedSecurityContext can run the Agent as a different UID with no shared group, so the owner-only
+	// mode would lock it out. The volume is mounted only in the Agent and database containers.
+	assert.Equal(t, os.FileMode(0o666), info.Mode().Perm())
 }
 
 func TestListenUnixServesHTTP(t *testing.T) {

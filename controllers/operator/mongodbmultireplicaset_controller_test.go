@@ -518,12 +518,12 @@ func TestMultiReplicaSetStaticGAProxyCommand(t *testing.T) {
 	} {
 		for _, existing := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/existing=%t", selection.name, existing), func(t *testing.T) {
+				t.Setenv(util.MongodbProxyImageEnv, "registry.example/proxy:test")
 				ctx := context.Background()
 				imageURLs := images.ImageUrls{
 					util.AgentImageUrlEnv:        "registry.example/agent",
 					util.MongodbImageEnv:         "registry.example/mongodb",
 					util.InitDatabaseImageUrlEnv: "registry.example/init",
-					util.MongodbProxyImageEnv:    "registry.example/proxy:test",
 				}
 				mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 				mrs.Annotations = map[string]string{

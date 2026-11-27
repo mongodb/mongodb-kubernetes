@@ -51,6 +51,7 @@ func databaseAgentSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime
 	settings := resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentSettingsSource())
 	if runtime.architecture == "static-ga" {
 		settings[mongodbToolsPathFlag] = staticGAAgentToolsPath
+		settings[mongodProxyAddressFlag] = MongodbProxyAddress
 	}
 	return settings
 }

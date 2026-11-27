@@ -317,7 +317,7 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			name:       "static-ga uses agent image tools",
 			variables:  map[string]string{StaticContainersArchitectureEnv: "static-ga"},
 			parameters: mdbv1.StartupParameters{"mongodbToolsPath": "/other/tools"},
-			want:       mdbv1.StartupParameters{"operatorMode": "true", "mongodbToolsPath": "/tools"},
+			want:       mdbv1.StartupParameters{"operatorMode": "true", "mongodbToolsPath": "/tools", "mongodProxyAddress": MongodbProxyAddress},
 			absent:     []string{"binariesFixedPath", "useLocalMongoDbTools"},
 		},
 		{

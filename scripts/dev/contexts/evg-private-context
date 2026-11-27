@@ -194,4 +194,4 @@ esac
 echo "Setting REGISTRY=${REGISTRY} and OPERATOR_VERSION=${OPERATOR_VERSION}, READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION}, VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION} for ${BUILD_SCENARIO} build scenario"
 
 # E2E installs and OLM bundles use the proxy image built with the operator.
-export MDB_MONGODB_PROXY_IMAGE="${MDB_MONGODB_PROXY_IMAGE:-${REGISTRY}/mongodb-kubernetes-mongodb-proxy:${OPERATOR_VERSION}}"
+export MDB_MONGODB_PROXY_IMAGE="${MDB_MONGODB_PROXY_IMAGE:-${mdb_mongodb_proxy_image:-${REGISTRY}/mongodb-kubernetes-mongodb-proxy:${OPERATOR_VERSION}}}"

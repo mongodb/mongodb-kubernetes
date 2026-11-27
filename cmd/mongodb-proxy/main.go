@@ -20,7 +20,10 @@ import (
 )
 
 func main() {
-	listen := flag.String("listen", "unix:///var/run/mongodb-proxy/proxy.sock", "address of the process API: unix:///absolute/path.sock (mode 0600)")
+	// The process API has no authentication. Access to the Unix socket is the authorization boundary: the socket
+	// lives in a pod-local emptyDir mounted only in the Agent and database containers, and the proxy never listens
+	// on TCP. Mode 0666 lets the Agent connect when managedSecurityContext runs it as a different UID.
+	listen := flag.String("listen", "unix:///var/run/mongodb-proxy/proxy.sock", "address of the process API: unix:///absolute/path.sock (mode 0666)")
 	debug := flag.Bool("debug", false, "log the status requests too")
 	flag.Parse()
 

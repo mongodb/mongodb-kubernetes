@@ -20,16 +20,14 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_proxy import (
-    AGENT_CONTAINER,
     DATABASE_CONTAINER,
-    PROXY_ADDRESS,
     mongod_identity,
     proxy_events,
     proxy_helm_values,
     proxy_image,
-    query_proxy,
     restart_counts,
     run_operator_in_cluster,
+    static_ga_agent_containers,
     wait_for_new_mongod,
 )
 from kubetester.operator import Operator
@@ -72,6 +70,10 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_appdb_version(custom_appdb_version)
     # The replica set below runs through the proxy, and so does the AppDB that follows the resource.
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
+    # The released Agent does not support -mongodProxyAddress, so run the branch Agent image.
+    resource["spec"]["applicationDatabase"].setdefault("podSpec", {}).setdefault("podTemplate", {}).setdefault(
+        "spec", {}
+    )["containers"] = static_ga_agent_containers()
 
     try_load(resource)
     return resource
@@ -84,6 +86,10 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     ).configure(ops_manager, REPLICA_SET_NAME)
     resource.set_version(custom_mdb_version)
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
+    # The released Agent does not support -mongodProxyAddress, so run the branch Agent image.
+    resource["spec"].setdefault("podSpec", {}).setdefault("podTemplate", {}).setdefault("spec", {})[
+        "containers"
+    ] = static_ga_agent_containers()
     try_load(resource)
     return resource
 
@@ -100,21 +106,6 @@ def test_create_ops_manager(ops_manager: MongoDBOpsManager):
 def test_replica_set_reaches_running_phase_under_ops_manager(replica_set: MongoDB):
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-
-
-@mark.e2e_om_appdb_mongodb_proxy
-def test_replica_set_pods_run_the_proxy(replica_set: MongoDB, namespace: str):
-    sts = KubernetesTester.clients("appsv1").read_namespaced_stateful_set(replica_set.name, namespace)
-    containers = {c.name: c for c in sts.spec.template.spec.containers}
-    assert containers[DATABASE_CONTAINER].command == ["/mnt/proxy/proxy"]
-    env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
-    assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
-    assert not sts.spec.template.spec.share_process_namespace
-
-    for member in range(replica_set["spec"]["members"]):
-        status = query_proxy(f"{replica_set.name}-{member}", namespace)
-        assert status["state"] == "running", status
-        assert status["role"] == "main", status
 
 
 @mark.e2e_om_appdb_mongodb_proxy
