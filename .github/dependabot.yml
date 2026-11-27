@@ -69,6 +69,25 @@ updates:
       - python
       - skip-changelog
 
+  - package-ecosystem: pre-commit
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit-deps:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+    ignore:
+      # pinned well behind latest; bump manually until we are ready to deal with new findings
+      - dependency-name: https://github.com/golangci/golangci-lint
+    labels:
+      - dependencies
+      - skip-changelog
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
