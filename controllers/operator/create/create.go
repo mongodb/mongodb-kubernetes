@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -282,12 +284,19 @@ func needsExternalServices(mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSet
 func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	existingStatefulSet, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 	if stsErr != nil {
-		// if we are here it means its first reconciling, we can skip the whole pvc state machine
-		if apiErrors.IsNotFound(stsErr) {
-			return workflow.OK()
-		} else {
+		if !apiErrors.IsNotFound(stsErr) {
 			return workflow.Failed(stsErr)
 		}
+		// Pods without a controller mean a resize orphan-deleted this StatefulSet and its recreate
+		// did not happen (operator restart, or the delete was observed late): annotate so the
+		// recreated StatefulSet rolls the adopted pods.
+		if hasOrphanedPods(ctx, memberClient, desiredSts) {
+			log.Infof("Recreating StatefulSet %s orphaned by a PVC resize; its pods will restart", desiredSts.Name)
+			if err := enterprisests.AddPVCAnnotation(desiredSts); err != nil {
+				return workflow.Failed(xerrors.Errorf("can't add pvc annotation, err: %s", err))
+			}
+		}
+		return workflow.OK()
 	}
 
 	pvcResizes := resourceStorageHasChanged(existingStatefulSet.Spec.VolumeClaimTemplates, desiredSts.Spec.VolumeClaimTemplates)
@@ -315,7 +324,7 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 
 		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
 		if err := resizePVCsStorage(ctx, memberClient, desiredSts, log); err != nil {
-			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
+			return workflow.Failed(xerrors.Errorf("can't resize pvc: %w", err))
 		}
 
 		finishedResizing, err := hasFinishedResizing(ctx, memberClient, desiredSts)
@@ -439,13 +448,38 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 
 	finishedResizing := true
 	for _, currentPVC := range pvcList.Items {
-		if template, index := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC); template != nil {
-			if currentPVC.Status.Capacity.Storage().Cmp(*desiredSts.Spec.VolumeClaimTemplates[index].Spec.Resources.Requests.Storage()) != 0 {
-				finishedResizing = false
-			}
+		if template, _ := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC); template != nil && !pvcFinishedResizing(currentPVC, *template.Spec.Resources.Requests.Storage()) {
+			finishedResizing = false
 		}
 	}
 	return finishedResizing, nil
+}
+
+// pvcFinishedResizing reports whether the volume is expanded to at least the requested size: providers
+// may round the capacity up. Offline-only expansion keeps the old capacity with FileSystemResizePending
+// until the pod restarts, which the rolling restart after the StatefulSet recreate does.
+func pvcFinishedResizing(p corev1.PersistentVolumeClaim, requested resource.Quantity) bool {
+	if p.Status.Capacity.Storage().Cmp(requested) >= 0 {
+		return true
+	}
+	return slices.ContainsFunc(p.Status.Conditions, func(c corev1.PersistentVolumeClaimCondition) bool {
+		return c.Type == corev1.PersistentVolumeClaimFileSystemResizePending && c.Status == corev1.ConditionTrue
+	})
+}
+
+// hasOrphanedPods reports whether the first pod of the StatefulSet exists without a controller.
+func hasOrphanedPods(ctx context.Context, memberClient kubernetesClient.Client, sts *appsv1.StatefulSet) bool {
+	pod, err := memberClient.GetPod(ctx, kube.ObjectKey(sts.Namespace, fmt.Sprintf("%s-0", sts.Name)))
+	return err == nil && metav1.GetControllerOf(&pod) == nil
+}
+
+// pvcResizeError names the PVC and, when the API server rejects or never answers the request, the two
+// prerequisites of a resize.
+func pvcResizeError(err error, format string, args ...any) error {
+	if apiErrors.IsForbidden(err) || errors.Is(err, context.DeadlineExceeded) {
+		format += " (the StorageClass must set allowVolumeExpansion: true and the operator must be installed with operator.enablePVCResize=true)"
+	}
+	return xerrors.Errorf(format+": %w", append(args, err)...)
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
@@ -456,7 +490,7 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 
 	pvcList := corev1.PersistentVolumeClaimList{}
 	if err := kubeClient.List(ctx, &pvcList, client.InNamespace(statefulSetToCreate.Namespace)); err != nil {
-		return err
+		return pvcResizeError(err, "failed to list PVCs in namespace %s", statefulSetToCreate.Namespace)
 	}
 
 	for _, existingPVC := range pvcList.Items {
@@ -466,7 +500,7 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
 			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
 			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
-				return err
+				return pvcResizeError(err, "failed to resize PVC %s/%s to %s", existingPVC.Namespace, existingPVC.Name, targetSize.String())
 			}
 		}
 	}

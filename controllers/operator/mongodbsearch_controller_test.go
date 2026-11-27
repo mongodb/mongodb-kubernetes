@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
+	"testing/synctest"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +35,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
@@ -39,6 +43,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -235,27 +240,33 @@ func TestMongoDBSearchOnDelete_SweepsOwnedResourcesAndDependentWatches(t *testin
 	deletedSearch := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "deleted-search-uid"},
 		Spec:       searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{Name: "member-a"}}},
+		// Deleted mid-resize: the StatefulSet is orphan-deleted and not yet recreated.
+		Status: searchv1.MongoDBSearchStatus{Common: status.Common{PVCs: status.PVCS{{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "resizing-sts"}}}},
 	}
 	ownerLabels := khandler.SearchOwnershipLabels(deletedSearch, "", "")
 	foreignLabels := maps.Clone(ownerLabels)
 	foreignLabels[khandler.MongoDBSearchOwnerNameLabel] = "another-search"
 
 	type clusterFixture struct {
-		ownedSts *appsv1.StatefulSet
-		ownedDep *appsv1.Deployment
-		foreign  *corev1.Service
+		ownedSts      *appsv1.StatefulSet
+		ownedDep      *appsv1.Deployment
+		foreign       *corev1.Service
+		orphanedPod   *corev1.Pod
+		controlledPod *corev1.Pod
 	}
 	newFixture := func(prefix string) clusterFixture {
 		return clusterFixture{
-			ownedSts: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-sts", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
-			ownedDep: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-deployment", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
-			foreign:  &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-foreign", Namespace: searchKey.Namespace, Labels: foreignLabels}},
+			ownedSts:      &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-sts", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
+			ownedDep:      &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-deployment", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
+			foreign:       &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-foreign", Namespace: searchKey.Namespace, Labels: foreignLabels}},
+			orphanedPod:   &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "resizing-sts-0", Namespace: searchKey.Namespace}},
+			controlledPod: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "resizing-sts-1", Namespace: searchKey.Namespace, OwnerReferences: []metav1.OwnerReference{{Kind: "StatefulSet", Name: "resizing-sts", UID: "sts-uid", Controller: new(true)}}}},
 		}
 	}
 	deleteErr := fmt.Errorf("injected StatefulSet sweep failure")
 	newClusterClient := func(fx clusterFixture, funcs interceptor.Funcs) client.Client {
 		return mock.NewEmptyFakeClientBuilder().
-			WithObjects(fx.ownedSts, fx.ownedDep, fx.foreign).
+			WithObjects(fx.ownedSts, fx.ownedDep, fx.foreign, fx.orphanedPod, fx.controlledPod).
 			WithInterceptorFuncs(funcs).
 			Build()
 	}
@@ -304,11 +315,17 @@ func TestMongoDBSearchOnDelete_SweepsOwnedResourcesAndDependentWatches(t *testin
 	} {
 		require.NoError(t, member.client.Get(ctx, client.ObjectKeyFromObject(member.fixture.foreign), &corev1.Service{}),
 			"[%s] another Search's resources are never selected", member.name)
+		assert.True(t, apiErrors.IsNotFound(member.client.Get(ctx, client.ObjectKeyFromObject(member.fixture.orphanedPod), &corev1.Pod{})),
+			"[%s] pods orphaned by the in-flight resize are deleted", member.name)
+		require.NoError(t, member.client.Get(ctx, client.ObjectKeyFromObject(member.fixture.controlledPod), &corev1.Pod{}),
+			"[%s] pods with a controller are left to it", member.name)
 	}
 	// Central-cluster resources carry controller owner references and are left
-	// to native garbage collection — the sweep never touches the central cluster.
+	// to native garbage collection.
 	require.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(centralFixture.ownedSts), &appsv1.StatefulSet{}))
 	require.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(centralFixture.ownedDep), &appsv1.Deployment{}))
+	// Pods orphaned by the resize have no owner reference, so the central cluster is swept for them.
+	assert.True(t, apiErrors.IsNotFound(centralClient.Get(ctx, client.ObjectKeyFromObject(centralFixture.orphanedPod), &corev1.Pod{})))
 }
 
 // One wiring proof for the label-routed Deployment watches on each watch list:
@@ -465,9 +482,10 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	tests := []struct {
 		name          string
 		withWireproto bool
+		growStorage   bool
 	}{
 		{name: "grpc only (default)", withWireproto: false},
-		{name: "grpc + wireproto via annotation", withWireproto: true},
+		{name: "grpc + wireproto via annotation", withWireproto: true, growStorage: true},
 	}
 
 	for _, tc := range tests {
@@ -525,6 +543,66 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.NoError(t, err)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 			assert.Equal(t, corev1.PullIfNotPresent, sts.Spec.Template.Spec.Containers[0].ImagePullPolicy)
+
+			if !tc.growStorage {
+				updatedSearch.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1G"}}
+				require.NoError(t, c.Update(ctx, updatedSearch))
+				checkSearchReconcileFailed(ctx, t, reconciler, c, search, "can't update pvc and statefulset to a smaller storage, from: 16G - to:1G")
+
+				require.NoError(t, c.Get(ctx, search.NamespacedName(), updatedSearch))
+				updatedSearch.Spec.Clusters[0].Persistence = &v1.Persistence{MultipleConfig: &v1.MultiplePersistenceConfig{Data: &v1.PersistenceConfig{Storage: "32G"}}}
+				require.NoError(t, c.Update(ctx, updatedSearch))
+				checkSearchReconcileFailed(ctx, t, reconciler, c, search, "spec.clusters[0].persistence.multiple is not supported")
+				return
+			}
+
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				assert.NotContains(t, sts.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "a StatefulSet that was never resized has no storage annotation")
+				pvcs := createPVCs(t, *sts, c)
+				grow := func(storage string) {
+					t.Helper()
+					live := &searchv1.MongoDBSearch{}
+					require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+					live.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: storage}}
+					require.NoError(t, c.Update(ctx, live))
+					_, err := reconciler.Reconcile(ctx, requestFromObject(search))
+					require.NoError(t, err)
+					require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+					assert.Equal(t, status.PhasePending, live.Status.Phase)
+					assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: sts.Name}}, live.Status.PVCs)
+					assertPVCStorageRequests(t, c, pvcs, storage)
+				}
+				resized := func(storage string) string {
+					t.Helper()
+					got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 3)
+					require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+					assert.Nil(t, got.Status.PVCs)
+					recreated := &appsv1.StatefulSet{}
+					require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(sts), recreated))
+					assert.Equal(t, storage, recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
+					require.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation)
+					return recreated.Spec.Template.Annotations[statefulset.PVCSizeAnnotation]
+				}
+
+				// From the default size; the provider rounds the requested 20G up to 20Gi.
+				grow("20G")
+				for i := range pvcs {
+					setPVCStatus(ctx, t, c, &pvcs[i], func(s *corev1.PersistentVolumeClaimStatus) {
+						s.Capacity = corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20Gi")}
+					})
+				}
+				firstSize := resized("20G")
+
+				// Offline-only expansion: the capacity only grows once the pods restart.
+				grow("30G")
+				for i := range pvcs {
+					setPVCStatus(ctx, t, c, &pvcs[i], func(s *corev1.PersistentVolumeClaimStatus) {
+						s.Conditions = []corev1.PersistentVolumeClaimCondition{{Type: corev1.PersistentVolumeClaimFileSystemResizePending, Status: corev1.ConditionTrue}}
+					})
+				}
+				assert.NotEqual(t, firstSize, resized("30G"), "a second resize must roll the pods again")
+			})
 		})
 	}
 
@@ -1097,6 +1175,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 		{
 			Name: "us-east", Index: new(int32(0)), Replicas: new(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
+			Persistence:  &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}},
 		},
 		{
 			Name: "us-west", Index: new(int32(1)), Replicas: new(int32(1)),
@@ -1153,6 +1232,106 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			assertSearchOwnerLabels(t, search, false, sts, headlessSvc, proxySvc, cm)
 		})
 	}
+
+	t.Run("storage increase resizes only that cluster's PVCs through its client", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			eastStsName := search.StatefulSetNamespacedNameForCluster(0)
+			eastSts := &appsv1.StatefulSet{}
+			require.NoError(t, eastClient.Get(ctx, eastStsName, eastSts))
+			eastPVCs := createPVCs(t, *eastSts, eastClient)
+			westSts := &appsv1.StatefulSet{}
+			require.NoError(t, westClient.Get(ctx, search.StatefulSetNamespacedNameForCluster(1), westSts))
+			westPVCs := createPVCs(t, *westSts, westClient)
+
+			live := &searchv1.MongoDBSearch{}
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			live.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "2Gi"}}
+			// Applied together with the resize, once the StatefulSet is recreated.
+			live.Spec.Clusters[0].Replicas = new(int32(2))
+			live.Spec.Version = "1.71.0"
+			require.NoError(t, centralClient.Update(ctx, live))
+
+			_, err := reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PhasePending, live.Status.Phase)
+			assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: eastStsName.Name}}, live.Status.PVCs)
+			assertPVCStorageRequests(t, eastClient, eastPVCs, "2Gi")
+			assertPVCStorageRequests(t, westClient, westPVCs, westPVCs[0].Spec.Resources.Requests.Storage().String())
+
+			for i := range eastPVCs {
+				setPVCWithUpdatedResource(ctx, t, eastClient, &eastPVCs[i])
+			}
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+
+			recreated := &appsv1.StatefulSet{}
+			require.NoError(t, eastClient.Get(ctx, eastStsName, recreated))
+			assert.Equal(t, "2Gi", recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
+			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation)
+
+			got := driveSearchReconcileToRunning(ctx, t, reconciler, centralClient, search, 3, eastClient, westClient)
+			require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+			assert.Nil(t, got.Status.PVCs)
+			require.NoError(t, eastClient.Get(ctx, eastStsName, recreated))
+			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "later updates must keep the annotation, or the pods restart again")
+			assert.Equal(t, int32(2), *recreated.Spec.Replicas)
+			assert.Contains(t, recreated.Spec.Template.Spec.Containers[0].Image, ":1.71.0")
+
+			// A statefulSet volumeClaimTemplates override is a size source too, and removing
+			// another cluster mid-resize neither blocks nor restarts the resize.
+			westStsName := search.StatefulSetNamespacedNameForCluster(1)
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			live.Spec.Clusters[1].StatefulSetConfiguration = dataVolumeClaimOverride("20G")
+			require.NoError(t, centralClient.Update(ctx, live))
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: westStsName.Name}}, live.Status.PVCs)
+			assertPVCStorageRequests(t, westClient, westPVCs, "20G")
+
+			live.Spec.Clusters = live.Spec.Clusters[1:]
+			require.NoError(t, centralClient.Update(ctx, live))
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PhasePending, live.Status.Phase)
+			assert.True(t, apiErrors.IsNotFound(eastClient.Get(ctx, eastStsName, &appsv1.StatefulSet{})), "the removed cluster's StatefulSet is swept")
+
+			for i := range westPVCs {
+				setPVCStatus(ctx, t, westClient, &westPVCs[i], func(s *corev1.PersistentVolumeClaimStatus) {
+					s.Capacity = corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20G")}
+				})
+			}
+			got = driveSearchReconcileToRunning(ctx, t, reconciler, centralClient, search, 3, westClient)
+			require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+			assert.Nil(t, got.Status.PVCs)
+			require.NoError(t, westClient.Get(ctx, westStsName, recreated))
+			assert.Equal(t, "20G", recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
+			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation)
+		})
+	})
+}
+
+// assertPVCStorageRequests checks that every PVC exists and requests the given storage.
+func assertPVCStorageRequests(t *testing.T, c client.Client, pvcs []corev1.PersistentVolumeClaim, storage string) {
+	t.Helper()
+	for _, p := range pvcs {
+		live := &corev1.PersistentVolumeClaim{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(&p), live))
+		assert.Equal(t, storage, live.Spec.Resources.Requests.Storage().String(), "PVC %s", p.Name)
+	}
+}
+
+// dataVolumeClaimOverride is a statefulSet override sizing the mongot data volume claim.
+func dataVolumeClaimOverride(storage string) *v1.StatefulSetConfiguration {
+	return &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
+		VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
+			ObjectMeta: metav1.ObjectMeta{Name: "data"},
+			Spec:       corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(storage)}}},
+		}},
+	}}}
 }
 
 // newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
@@ -1412,6 +1591,8 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 			ctx := context.Background()
 			search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 			search.Spec.Clusters = search.Spec.Clusters[:1]
+			// cluster-b was removed mid-resize, with its StatefulSet orphan-deleted.
+			search.Status.PVCs = status.PVCS{{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: search.StatefulSetNamespacedNameForCluster(1).Name}}
 			memberA := mock.NewEmptyFakeClientBuilder().Build()
 			var memberB client.Client = mock.NewEmptyFakeClientBuilder().Build()
 			labels := khandler.SearchOwnershipLabels(search, "", searchMongotComponent)
@@ -1420,6 +1601,8 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name + "-tls", Namespace: search.Namespace, UID: "removed-secret", Labels: maps.Clone(labels)}}
 			require.NoError(t, memberB.Create(ctx, sts))
 			require.NoError(t, memberB.Create(ctx, secret))
+			orphanedPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name + "-0", Namespace: search.Namespace}}
+			require.NoError(t, memberB.Create(ctx, orphanedPod))
 			injectedErr := fmt.Errorf("injected member delete failure")
 			if tc.failStsDelete {
 				memberB = interceptor.NewClient(memberB.(client.WithWatch), interceptor.Funcs{
@@ -1462,6 +1645,8 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 
 			assert.True(t, apiErrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(secret), &corev1.Secret{})),
 				"one kind's delete failure must not block the other kinds")
+			assert.True(t, apiErrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(orphanedPod), &corev1.Pod{})),
+				"pods orphaned by the in-flight resize are deleted with the cluster")
 			stsErr := memberB.Get(ctx, client.ObjectKeyFromObject(sts), &appsv1.StatefulSet{})
 			if tc.failStsDelete {
 				assert.NoError(t, stsErr, "failed delete leaves the StatefulSet behind for the next reconcile")
@@ -1691,6 +1876,80 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 
 			require.Equal(t, status.PhaseRunning, got.Status.Phase,
 				"projected sharded reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+
+			// A shardOverrides storage increase resizes only that shard's PVCs.
+			pvcsByShard := map[string][]corev1.PersistentVolumeClaim{}
+			for _, shard := range []string{"sh-0", "sh-1"} {
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(tc.wantIdx, shard), sts))
+				pvcsByShard[shard] = createPVCs(t, *sts, c)
+			}
+			live := &searchv1.MongoDBSearch{}
+			require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+			opIdx := slices.IndexFunc(live.Spec.Clusters, func(cs searchv1.ClusterSpec) bool { return cs.Name == tc.opCluster })
+			live.Spec.Clusters[opIdx].ShardOverrides = []searchv1.ShardOverride{{
+				ShardNames:  []string{"sh-1"},
+				Persistence: &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "32G"}},
+			}}
+			require.NoError(t, c.Update(ctx, live))
+
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PhasePending, live.Status.Phase)
+			assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: search.MongotStatefulSetForClusterShard(tc.wantIdx, "sh-1").Name}}, live.Status.PVCs)
+			assertPVCStorageRequests(t, c, pvcsByShard["sh-1"], "32G")
+			assertPVCStorageRequests(t, c, pvcsByShard["sh-0"], util.DefaultMongodStorageSize)
+
+			synctest.Test(t, func(t *testing.T) {
+				setCapacity := func(shard, storage string) {
+					for i := range pvcsByShard[shard] {
+						setPVCStatus(ctx, t, c, &pvcsByShard[shard][i], func(s *corev1.PersistentVolumeClaimStatus) {
+							s.Capacity = corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(storage)}
+						})
+					}
+				}
+				assertResized := func(shard, storage string) {
+					sts := &appsv1.StatefulSet{}
+					require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(tc.wantIdx, shard), sts))
+					assert.Equal(t, storage, sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String(), "shard %s", shard)
+					assert.Contains(t, sts.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "shard %s", shard)
+				}
+
+				// The operator orphan-deleted the StatefulSet and restarted before recreating it.
+				setCapacity("sh-1", "32G")
+				sh1Sts := &appsv1.StatefulSet{}
+				require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(tc.wantIdx, "sh-1"), sh1Sts))
+				require.NoError(t, c.Delete(ctx, sh1Sts, client.PropagationPolicy(metav1.DeletePropagationOrphan)))
+				require.NoError(t, c.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: sh1Sts.Name + "-0", Namespace: sh1Sts.Namespace}}))
+				got = driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 3)
+				require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+				assert.Nil(t, got.Status.PVCs)
+				assertResized("sh-1", "32G")
+
+				// Both shards resize at once, sh-1 sized by a shardOverrides statefulSet volumeClaimTemplates override.
+				require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+				live.Spec.Clusters[opIdx].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "20G"}}
+				live.Spec.Clusters[opIdx].ShardOverrides[0].StatefulSetConfiguration = dataVolumeClaimOverride("40G")
+				require.NoError(t, c.Update(ctx, live))
+				_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+				require.NoError(t, err)
+				require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+				assert.ElementsMatch(t, status.PVCS{
+					{Phase: pvc.PhasePVCResize, StatefulsetName: search.MongotStatefulSetForClusterShard(tc.wantIdx, "sh-0").Name},
+					{Phase: pvc.PhasePVCResize, StatefulsetName: sh1Sts.Name},
+				}, live.Status.PVCs)
+				assertPVCStorageRequests(t, c, pvcsByShard["sh-0"], "20G")
+				assertPVCStorageRequests(t, c, pvcsByShard["sh-1"], "40G")
+
+				setCapacity("sh-0", "20G")
+				setCapacity("sh-1", "40G")
+				got = driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 3)
+				require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+				assert.Nil(t, got.Status.PVCs)
+				assertResized("sh-0", "20G")
+				assertResized("sh-1", "40G")
+			})
 		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -6381,24 +6382,91 @@ func TestReconcileRSMC_MissingClientSkipsClusterAndPends(t *testing.T) {
 // A failing member cluster must not block the units on the other clusters: the
 // error is aggregated and returned once, after all units ran.
 func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
-	injectedErr := fmt.Errorf("injected cluster-a apply failure")
-	baseA := mock.NewEmptyFakeClientBuilder().Build()
-	clusterA := kubernetesClient.NewClient(interceptor.NewClient(baseA, interceptor.Funcs{
-		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			return injectedErr
+	stsA := types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}
+	forbidden := func(msg string) error {
+		return apierrors.NewForbidden(schema.GroupResource{Resource: "persistentvolumeclaims"}, "data-mdb-search-search-0-0", errors.New(msg))
+	}
+	tests := []struct {
+		name string
+		// growA creates cluster-a's StatefulSet and PVC, then increases its storage before the failing reconcile.
+		growA   bool
+		funcs   interceptor.Funcs
+		wantMsg []string
+	}{
+		{
+			name: "apply failure",
+			funcs: interceptor.Funcs{Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				return fmt.Errorf("injected cluster-a apply failure")
+			}},
+			wantMsg: []string{"injected cluster-a apply failure"},
 		},
-	}))
-	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
-	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
-	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, central)
+		{
+			name: "StatefulSet read failure in the PVC resize check",
+			funcs: interceptor.Funcs{Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*appsv1.StatefulSet); ok {
+					return fmt.Errorf("injected cluster-a read failure")
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			}},
+			wantMsg: []string{`StatefulSet mdb-search-search-0 on cluster "cluster-a"`, "injected cluster-a read failure"},
+		},
+		{
+			name:  "PVC expansion rejected by a StorageClass without allowVolumeExpansion",
+			growA: true,
+			funcs: interceptor.Funcs{Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*corev1.PersistentVolumeClaim); ok {
+					return forbidden("only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize")
+				}
+				return cl.Update(ctx, obj, opts...)
+			}},
+			wantMsg: []string{`on cluster "cluster-a"`, "failed to resize PVC ns/data-mdb-search-search-0-0 to 20G", "allowVolumeExpansion: true", "must support resize"},
+		},
+		{
+			name:  "PVC access forbidden without operator.enablePVCResize",
+			growA: true,
+			funcs: interceptor.Funcs{List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.PersistentVolumeClaimList); ok {
+					return forbidden(`User "system:serviceaccount:ns:operator" cannot list resource "persistentvolumeclaims"`)
+				}
+				return cl.List(ctx, list, opts...)
+			}},
+			wantMsg: []string{`on cluster "cluster-a"`, "failed to list PVCs in namespace ns", "operator.enablePVCResize=true"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clusterA := kubernetesClient.NewClient(interceptor.NewClient(mock.NewEmptyFakeClientBuilder().Build(), tc.funcs))
+			clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+			central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+			helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, central)
 
-	st := helper.reconcile(t.Context(), zap.S())
-	require.False(t, st.IsOK())
-	assert.Contains(t, MessageFromStatus(st), "injected cluster-a apply failure")
+			if tc.growA {
+				helper.reconcile(t.Context(), zap.S())
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, clusterA.Get(t.Context(), stsA, sts))
+				require.NoError(t, clusterA.Create(t.Context(), &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{Name: "data-" + stsA.Name + "-0", Namespace: stsA.Namespace},
+					Spec:       sts.Spec.VolumeClaimTemplates[0].Spec,
+				}))
+				helper.mdbSearch.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "20G"}}
+			}
 
-	// cluster-b's unit was still applied despite cluster-a failing first.
-	require.NoError(t, clusterB.Get(t.Context(),
-		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+			st := helper.reconcile(t.Context(), zap.S())
+			require.Equal(t, status.PhaseFailed, st.Phase())
+			for _, msg := range tc.wantMsg {
+				assert.Contains(t, MessageFromStatus(st), msg)
+			}
+
+			// cluster-b's unit was still applied despite cluster-a failing first.
+			require.NoError(t, clusterB.Get(t.Context(),
+				types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+			if tc.growA {
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, clusterA.Get(t.Context(), stsA, sts))
+				assert.Equal(t, "16G", sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String(), "a failed resize leaves the StatefulSet untouched")
+			}
+		})
+	}
 }
 
 // ValidateSearchSourceAuth pairs the search's auth mode with the source's: a SCRAM search

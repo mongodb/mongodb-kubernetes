@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 import pymongo
 import pymongo.errors
 from kubernetes import client
+from kubernetes.utils import parse_quantity
 from kubetester import create_or_update_secret, list_matching_pods, pod_is_ready, read_secret
 from kubetester.certs import create_tls_certs, rotate_cert
 from kubetester.kubetester import run_periodically
@@ -1125,6 +1126,83 @@ def mongot_data_pvc_names(
         for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
         if f"-{sts_name}-" in f"-{pvc.metadata.name}"
     ]
+
+
+# Installed on every kind cluster by scripts/dev/install_csi_driver.sh; allows volume expansion.
+RESIZABLE_STORAGE_CLASS = "csi-hostpath-sc"
+
+
+def resizable_persistence(storage: str) -> dict:
+    return {"single": {"storage": storage, "storageClass": RESIZABLE_STORAGE_CLASS}}
+
+
+class MongotPVCResize:
+    """Baseline of one mongot StatefulSet, its data PVCs and pods, checked once the operator resized them."""
+
+    def __init__(self, namespace: str, sts_name: str, api_client: Optional[client.ApiClient] = None):
+        self.namespace = namespace
+        self.sts_name = sts_name
+        self.apps = client.AppsV1Api(api_client=api_client)
+        self.core = client.CoreV1Api(api_client=api_client)
+        sts = self.apps.read_namespaced_stateful_set(sts_name, namespace)
+        assert sts.spec.replicas > 0, f"{sts_name} has no replicas, so no PVC to resize"
+        self.sts_uid = sts.metadata.uid
+        self.pvc_uids = {
+            name: self.core.read_namespaced_persistent_volume_claim(name, namespace).metadata.uid
+            for name in mongot_data_pvc_names(namespace, sts_name, api_client=api_client)
+        }
+        assert len(self.pvc_uids) == sts.spec.replicas, f"{sts_name} PVCs: {list(self.pvc_uids)}"
+        self.pod_uids = {
+            name: self.core.read_namespaced_pod(name, namespace).metadata.uid
+            for name in (f"{sts_name}-{i}" for i in range(sts.spec.replicas))
+        }
+
+    def assert_resized(self, storage: str) -> None:
+        """The StatefulSet was recreated with the new claim size, every data PVC was grown in place and
+        every pod was restarted, one at a time. Ordinals scaled away in the same edit are skipped."""
+        sts = self.apps.read_namespaced_stateful_set(self.sts_name, self.namespace)
+        assert sts.metadata.uid != self.sts_uid, f"{self.sts_name} was not recreated"
+        claim = next(c for c in sts.spec.volume_claim_templates if c.metadata.name == "data")
+        assert parse_quantity(claim.spec.resources.requests["storage"]) == parse_quantity(storage)
+
+        def ordinal(name: str) -> int:
+            return int(name.rsplit("-", 1)[1])
+
+        def kept(name: str) -> bool:
+            return ordinal(name) < sts.spec.replicas
+
+        for name, uid in self.pvc_uids.items():
+            if not kept(name):
+                continue
+            pvc = self.core.read_namespaced_persistent_volume_claim(name, self.namespace)
+            assert pvc.metadata.uid == uid, f"{name} was replaced, its index data is lost"
+            assert parse_quantity(pvc.status.capacity["storage"]) >= parse_quantity(storage), name
+
+        restarted = []
+        for name, uid in self.pod_uids.items():
+            if not kept(name):
+                continue
+            pod = self.core.read_namespaced_pod(name, self.namespace)
+            assert pod.metadata.uid != uid, f"{name} was not restarted"
+            restarted.append(pod)
+        # A rolling update replaces the pods one at a time, from the highest ordinal down.
+        created = [
+            p.metadata.creation_timestamp
+            for p in sorted(restarted, key=lambda p: ordinal(p.metadata.name), reverse=True)
+        ]
+        assert created == sorted(set(created)), f"{self.sts_name} pods were not restarted one at a time: {created}"
+
+
+def wait_for_pvc_resize_pending(mdbs: "MongoDBSearch", *sts_names: str) -> None:
+    """Waits until the CR reports Pending with a status.pvc entry for every given StatefulSet."""
+
+    def pending() -> tuple[bool, str]:
+        mdbs.load()
+        status = mdbs["status"]
+        resizing = {p["statefulsetName"] for p in status.get("pvc") or []}
+        return status["phase"] == "Pending" and resizing >= set(sts_names), f"status={status}"
+
+    run_periodically(pending, timeout=300, sleep_time=2, msg=f"PVC resize of {sts_names} to be reported")
 
 
 def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: int = 300) -> None:

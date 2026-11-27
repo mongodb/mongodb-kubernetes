@@ -2084,6 +2084,20 @@ func TestHasFinishedResizing(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, finished, "PVCs should not be finished resizing")
 	}
+
+	{
+		// Scenario 3: the provider rounded the capacity up, or the expansion only finishes on pod restart
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		pvc1RoundedUp := createPVCWithCapacity("data-"+sts.Name+"-0", sts.Namespace, "22G")
+		pvc2OfflineExpansion := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "10Gi")
+		pvc2OfflineExpansion.Status.Conditions = []corev1.PersistentVolumeClaimCondition{{Type: corev1.PersistentVolumeClaimFileSystemResizePending, Status: corev1.ConditionTrue}}
+		require.NoError(t, fakeClient.Create(ctx, pvc1RoundedUp))
+		require.NoError(t, fakeClient.Create(ctx, pvc2OfflineExpansion))
+
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
+		assert.NoError(t, err)
+		assert.True(t, finished, "a larger capacity or a pending file system resize should count as finished")
+	}
 }
 
 // Helper function to create a PVC with a specific capacity and status

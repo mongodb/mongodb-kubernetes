@@ -58,6 +58,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -1466,8 +1467,10 @@ func TestReplicasetRoleAnnotationIsSet(t *testing.T) {
 }
 
 func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
-	// Simulate that the PVC has finished resizing
-	setPVCWithUpdatedResource(ctx, t, memberClient, p)
+	// Simulate that the PVC has finished resizing, the provider rounding the requested 2Gi up
+	setPVCStatus(ctx, t, memberClient, p, func(s *corev1.PersistentVolumeClaimStatus) {
+		s.Capacity = corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2148Mi")}
+	})
 
 	st := create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
 
@@ -1478,9 +1481,17 @@ func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kub
 
 	// *** "No Storage Change, No Action Required" ***
 	statefulSet.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("1Gi")
+	statefulSet.Spec.Template.Annotations = nil
 	st = create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
 
 	assert.Equal(t, status.PhaseRunning, st.Phase())
+	assert.NotContains(t, statefulSet.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "without orphaned pods the recreate restarts nothing")
+
+	// *** "STS Orphaned, Not Recreated Before The Operator Restarted" ***
+	require.NoError(t, memberClient.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "example-sts-0", Namespace: statefulSet.Namespace}}))
+	st = create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+	assert.Equal(t, status.PhaseRunning, st.Phase())
+	assert.Contains(t, statefulSet.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "the recreated StatefulSet must roll the orphaned pods")
 
 	// Make sure the statefulset does not exist
 	stsToRetrieve := appsv1.StatefulSet{}
@@ -3178,4 +3189,13 @@ func TestLookupCorrespondingSearchResource_AuthGate(t *testing.T) {
 	t.Run("SCRAM source with a default SCRAM search is wired", func(t *testing.T) {
 		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("SCRAM-SHA-256")), newSearch(false)))
 	})
+}
+
+// setPVCStatus updates the status of the live PVC, as the volume provider would.
+func setPVCStatus(ctx context.Context, t *testing.T, c client.Client, p *corev1.PersistentVolumeClaim, mutate func(*corev1.PersistentVolumeClaimStatus)) {
+	t.Helper()
+	live := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(p), live))
+	mutate(&live.Status)
+	require.NoError(t, c.Status().Update(ctx, live))
 }

@@ -341,9 +341,14 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 		if err := memberClient.DeleteAllOf(ctx, &appsv1.Deployment{}, &mdbv1.MongodbCleanUpOptions{Namespace: search.Namespace, Labels: search.GetOwnerLabels()}); err != nil {
 			errs = errors.Join(errs, err)
 		}
+		errs = errors.Join(errs, searchcontroller.DeleteResizeOrphanedPods(ctx, memberClient, search, clusterName, log))
 		if errs != nil {
 			log.Warnf("Failed to clean up resources of deleted MongoDBSearch %s on cluster %q: %v", search.NamespacedName(), clusterName, errs)
 		}
+	}
+	// Owner references do not cover pods orphaned by an in-flight PVC resize on this cluster either.
+	if err := searchcontroller.DeleteResizeOrphanedPods(ctx, r.kubeClient, search, r.operatorClusterName, log); err != nil {
+		log.Warnf("Failed to clean up pods of deleted MongoDBSearch %s: %v", search.NamespacedName(), err)
 	}
 
 	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
@@ -361,6 +366,7 @@ func deleteMemberSearchResources(ctx context.Context, c kubernetesClient.Client,
 		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "proxy Service", searchProxyComponent, &corev1.ServiceList{}, log),
 		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchMongotComponent, &corev1.ConfigMapList{}, log),
 		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "Secret", searchMongotComponent, &corev1.SecretList{}, log),
+		searchcontroller.DeleteResizeOrphanedPods(ctx, c, search, clusterName, log),
 	)
 	for _, s := range []struct{ kind, name string }{
 		{"x509 client auth Secret", search.X509OperatorManagedSecret().Name},

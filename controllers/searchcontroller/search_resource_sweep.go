@@ -3,15 +3,21 @@ package searchcontroller
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
@@ -73,4 +79,35 @@ func DeleteOwnedResource(ctx context.Context, c kubernetesClient.Client, search 
 	}
 	log.Infof("Deleted MongoDBSearch %s %s (cluster=%q)", kind, obj.GetName(), clusterName)
 	return true, nil
+}
+
+// DeleteResizeOrphanedPods deletes the pods of the StatefulSets in status.pvc that have no controller:
+// between a resize's orphan-delete and the recreate, neither the StatefulSet sweep nor garbage
+// collection removes them.
+func DeleteResizeOrphanedPods(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+	if len(search.Status.PVCs) == 0 {
+		return nil
+	}
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods, client.InNamespace(search.Namespace)); err != nil {
+		return xerrors.Errorf("failed listing pods on cluster %q: %w", clusterName, err)
+	}
+	var errs error
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		orphanedByResize := slices.ContainsFunc(search.Status.PVCs, func(p status.PVC) bool {
+			ordinal, ok := strings.CutPrefix(pod.Name, p.StatefulsetName+"-")
+			_, err := strconv.Atoi(ordinal)
+			return ok && err == nil
+		})
+		if !orphanedByResize || metav1.GetControllerOf(pod) != nil {
+			continue
+		}
+		if err := c.Delete(ctx, pod); err != nil && !apierrors.IsNotFound(err) {
+			errs = errors.Join(errs, xerrors.Errorf("failed deleting pod %s on cluster %q: %w", pod.Name, clusterName, err))
+			continue
+		}
+		log.Infof("Deleted pod %s orphaned by a PVC resize (cluster=%q)", pod.Name, clusterName)
+	}
+	return errs
 }
