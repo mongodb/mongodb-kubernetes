@@ -336,9 +336,6 @@ patch_aliases:
     variant_tags: [ "preflight_release_test" ]
     task: ".*"
   - alias: "staging"
-    variant_tags: [ "staging" ]
-    task: ".*"
-  - alias: "staging"
     variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "e2e_light" ]
   - alias: "test_all_and_promote"

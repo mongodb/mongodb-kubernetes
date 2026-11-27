@@ -3,10 +3,10 @@
 Each variant needs to be tagged with one or more tags referencing related build scenario:
 
 - pr_patch: for patches created by GitHub PRs
-- staging: for builds triggered when merging to master or a release branch. The existing `staging` patch alias runs its
-  normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and `task_tags: [e2e_light]`. It does
-  not run the full E2E suite or promote. The expensive full E2E variants and their prerequisites are run on demand with
-  the `test_all_and_promote` patch alias instead.
+- staging: for builds triggered when merging to master or a release branch. The manual `staging` patch alias selects
+  only e2e-light tasks from `e2e_test_suite` variants; it does not select other variants tagged `staging`, run the full
+  E2E suite, or promote. The expensive full E2E variants and their prerequisites are run on demand with the
+  `test_all_and_promote` patch alias instead.
 - deprecated-release: legacy release process (rebuilds/retests everything), triggered by "old-X.Y.Z" git tags. To be
   removed soon — see .evergreen-release.yml.
 - release-publish: new release process (publish-only, no rebuild/retest), triggered by "new-X.Y.Z" git tags. See
@@ -41,7 +41,7 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y
 ### Staging scenario:
 
 ```shell
-evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
+evergreen patch -p mongodb-kubernetes -a staging -d "Test staging e2e-light tasks" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
 ```
 
 ### Full E2E test and promote a merge commit:
@@ -183,11 +183,11 @@ Automatic PR checks are gated by GitHub PR labels via `required_labels` on the `
 in
 `.evergreen.yml` ([Evergreen docs](https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#label-based-pr-testing)).
 Without any label only the always-on PR checks run: unit tests, lint/pre-commit, and the OCP version drift check. The
-`evergreen:e2e-light` label remains available to select e2e-light tasks on PR patches. Separately, the existing
-`staging` patch alias runs its normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and
-`task_tags: [e2e_light]`; staging does not run the full E2E suite or promote. Full E2E variants and their prerequisites
-are run with a separate manual `test_all_and_promote` patch against a chosen merge commit, with mckci promotion only
-after all tests in that patch pass.
+`evergreen:e2e-light` label remains available to select e2e-light tasks on PR patches. Separately, the manual
+`staging` patch alias selects only e2e-light tasks from `e2e_test_suite` variants; it does not select other variants
+tagged `staging`, run the full E2E suite, or promote. Full E2E variants and their prerequisites are run with a separate
+manual `test_all_and_promote` patch against a chosen merge commit, with mckci promotion only after all tests in that
+patch pass.
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
@@ -258,7 +258,7 @@ They can be triggered manually via CLI aliases; most can also be pulled into a P
 
 | Alias                             | Description                                                     |
 |-----------------------------------|-----------------------------------------------------------------|
-| `staging`                         | Normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and `task_tags: [e2e_light]`; not full E2E or promotion |
+| `staging`                         | Manual patch alias: selects only e2e-light tasks from `e2e_test_suite` variants; does not select other `staging`-tagged variants, run full E2E, or promote |
 | `test_all_and_promote`            | Manual full E2E variants and prerequisites against a chosen merge commit; mckci promotion only after all tests pass |
 | `preflight_release_test`          | Release-style preflight only (no image push, no Pyxis submit)   |
 | `deprecated-release`              | Legacy release process (rebuilds and retests before publishing) |
