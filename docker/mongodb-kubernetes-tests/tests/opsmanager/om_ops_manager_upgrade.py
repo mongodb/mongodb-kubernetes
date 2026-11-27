@@ -366,6 +366,8 @@ class TestMongoDbsVersionUpgrade:
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if is_default_architecture_static():
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
+            if any(e.name == "MDB_CUSTOM_AGENT_URL" for e in pod.spec.containers[0].env or []):
+                pytest.skip("a custom agent URL pins the agent version, so the OM upgrade does not change it")
             image_tag = pod.spec.containers[0].image.split(":")[-1]
             if prev_version.major != new_version.major:
                 assert TestOpsManagerVersionUpgrade.agent_version != image_tag
