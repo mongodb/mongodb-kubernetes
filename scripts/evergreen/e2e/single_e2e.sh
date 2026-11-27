@@ -253,6 +253,17 @@ run_tests() {
     echo "Operator running in cluster ${operator_context}"
     echo "Test pod running in cluster ${test_pod_context}"
 
+    # The in-cluster collector is reachable from the cluster that hosts it.
+    # Each client keeps the configured endpoint when its cluster has none.
+    # The suffix follows the cluster domain, which custom-domain variants override.
+    local_collector_endpoint="http://otel-collector-opentelemetry-collector.honeycomb.svc.${CLUSTER_DOMAIN:-cluster.local}:4317"
+    if kubectl --context "${operator_context}" -n honeycomb get service otel-collector-opentelemetry-collector >/dev/null 2>&1; then
+        export otel_collector_endpoint="${local_collector_endpoint}"
+    fi
+    if kubectl --context "${test_pod_context}" -n honeycomb get service otel-collector-opentelemetry-collector >/dev/null 2>&1; then
+        OTEL_COLLECTOR_ENDPOINT="${local_collector_endpoint}"
+    fi
+
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
     if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then

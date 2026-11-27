@@ -1,5 +1,11 @@
 mode: daemonset
 
+# The chart does not create a Service for mode=daemonset unless it is enabled
+# explicitly. The e2e test pod and the operator export traces through this
+# Service, so it must exist.
+service:
+  enabled: true
+
 image:
   repository: otel/opentelemetry-collector-k8s
 
@@ -96,6 +102,14 @@ config:
         container.cpu.usage:
           enabled: false
   processors:
+    # The kubeletstats receiver emits every node and pod metric family by
+    # default, and each event carries all pod labels and annotations. The e2e
+    # suites read the memory utilization metrics, so drop the rest.
+    filter/kubeletstats:
+      error_mode: ignore
+      metrics:
+        metric:
+          - 'name != "k8s.pod.memory_limit_utilization" and name != "k8s.pod.memory_request_utilization"'
     resource/k8s:
       attributes:
         - key: k8s.cluster.name
@@ -123,9 +137,10 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
+        processors: [ memory_limiter, resource/k8s, batch ]
         exporters: [otlp]
       metrics:
-        processors: [ resource/k8s ]
+        processors: [ resource/k8s, filter/kubeletstats ]
         exporters: [otlp]
       logs:
         exporters: [otlp]
