@@ -298,7 +298,7 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 
 		receipt, err := h.omAdmin.ReadLicenseReceipt(ctx, artifactID)
 		if err != nil {
-			return licenseFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err))
+			return licenseRequestFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err))
 		}
 		if err := h.createReleaseReceiptSecret(ctx, secretName, receipt); err != nil {
 			return licenseFailed(xerrors.Errorf("failed to write license receipt secret %s: %w", secretName, err))
@@ -314,14 +314,14 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 		if h.lastInstallSecretRef == "" && apierror.NewNonNil(err).IsNotFound() {
 			return workflow.OK()
 		}
-		return licenseFailed(xerrors.Errorf("failed to read the Ops Manager license state: %w", err))
+		return licenseRequestFailed(xerrors.Errorf("failed to read the Ops Manager license state: %w", err))
 	}
 
 	h.observed = &state
 	// Ops Manager versions with the license API but without the identity API are fine, the holder stays unset.
 	identity, err := h.omAdmin.ReadLicenseIdentity(ctx)
 	if err != nil && !apierror.NewNonNil(err).IsNotFound() {
-		return licenseFailed(xerrors.Errorf("failed to read the Ops Manager license identity: %w", err))
+		return licenseRequestFailed(xerrors.Errorf("failed to read the Ops Manager license identity: %w", err))
 	}
 	h.holderID = identity.HolderID
 	return workflow.OK()
@@ -350,7 +350,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 		if apierror.NewNonNil(err).IsLicenseArtifactOutdated() {
 			return artifactID, "", workflow.OK()
 		}
-		return "", "", licenseFailed(xerrors.Errorf("failed to install Ops Manager license %s: %w", artifactID, err))
+		return "", "", licenseRequestFailed(xerrors.Errorf("failed to install Ops Manager license %s: %w", artifactID, err))
 	}
 	h.observed = &state
 	h.log.Info("Installed Ops Manager license from secret")
@@ -395,7 +395,7 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 		return "", workflow.OK()
 	}
 	if err != nil {
-		return "", licenseFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", artifactID, err))
+		return "", licenseRequestFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", artifactID, err))
 	}
 	h.observed = &released
 	return artifactID, workflow.OK()

@@ -178,10 +178,10 @@ func TestEnsureOpsManagerLicense_ObserveGetFailurePolicy(t *testing.T) {
 		unsupported bool
 		wantOK      bool
 	}{
-		{name: "transient GET failure is retried", withSpec: false, wantOK: false},
+		{name: "GET failure fails", withSpec: false, wantOK: false},
 		{name: "unsupported API without spec.license is ignored", withSpec: false, unsupported: true, wantOK: true},
 		{name: "unsupported API without a recorded install is ignored", withSpec: true, unsupported: true, wantOK: true},
-		{name: "transient GET failure with spec.license is retried", withSpec: true, wantOK: false},
+		{name: "GET failure with spec.license fails", withSpec: true, wantOK: false},
 	}
 
 	for _, tc := range tests {
@@ -199,6 +199,56 @@ func TestEnsureOpsManagerLicense_ObserveGetFailurePolicy(t *testing.T) {
 			admin := &api.MockedOmAdmin{LicenseReadErr: readErr}
 
 			assert.Equal(t, tc.wantOK, ensureLicense(r, testOm, admin).IsOK())
+		})
+	}
+}
+
+func TestEnsureOpsManagerLicense_UnansweredRequestIsPending(t *testing.T) {
+	badRequest := http.StatusBadRequest
+	// The HTTP client returns this when Ops Manager gave no answer.
+	unreachable := apierror.New(assert.AnError)
+	tests := []struct {
+		name        string
+		admin       *api.MockedOmAdmin
+		rotate      bool
+		recompute   bool
+		wantPending bool
+	}{
+		{name: "unreachable state read is pending", admin: &api.MockedOmAdmin{LicenseReadErr: unreachable}, wantPending: true},
+		{name: "unreachable identity read is pending", admin: &api.MockedOmAdmin{LicenseIdentityErr: unreachable}, wantPending: true},
+		{name: "unreachable install is pending", admin: &api.MockedOmAdmin{LicenseInstallErr: unreachable}, wantPending: true},
+		{name: "4xx state read fails", admin: &api.MockedOmAdmin{LicenseReadErr: &apierror.Error{Status: &badRequest}}},
+		{name: "4xx install fails", admin: &api.MockedOmAdmin{LicenseInstallErr: &apierror.Error{Status: &badRequest}}},
+		// The annotation is already removed, so a retry would not rotate or recompute.
+		{name: "unreachable rotation fails", admin: &api.MockedOmAdmin{IdentityRotationErr: unreachable}, rotate: true},
+		{name: "unreachable recompute fails", admin: &api.MockedOmAdmin{LicenseRecomputeErr: unreachable}, recompute: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testOm := DefaultOpsManagerBuilder().Build()
+			testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+			licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+			r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+			if tc.rotate {
+				setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+			}
+			if tc.recompute {
+				setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
+			}
+
+			st := ensureLicense(r, testOm, tc.admin)
+			if !tc.wantPending {
+				assert.Equal(t, status.PhaseFailed, st.Phase())
+				assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
+				return
+			}
+			assert.Equal(t, status.PhasePending, st.Phase())
+			result, err := st.ReconcileResult()
+			require.NoError(t, err)
+			assert.NotZero(t, result.RequeueAfter)
+			_, found := status.GetOption(st.StatusOptions(), status.LicenseStatusOption{})
+			assert.False(t, found)
 		})
 	}
 }

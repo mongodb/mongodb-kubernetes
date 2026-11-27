@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -8,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 )
 
@@ -85,4 +87,12 @@ func operatorManagedLicense(managed bool, reason, message string) workflow.Statu
 
 func licenseFailed(err error) workflow.Status {
 	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.OperatorManagedLicenseCondition(false, status.ReasonLicenseFailed, err.Error())))
+}
+
+// licenseRequestFailed returns Pending when Ops Manager gave no answer, such as while its AppDB has no primary.
+func licenseRequestFailed(err error) workflow.Status {
+	if apiErr := (*apierror.Error)(nil); errors.As(err, &apiErr) && apiErr.Status == nil {
+		return workflow.Pending("Waiting for Ops Manager to answer the license request: %s", err.Error())
+	}
+	return licenseFailed(err)
 }
