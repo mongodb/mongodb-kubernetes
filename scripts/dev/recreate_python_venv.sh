@@ -61,8 +61,16 @@ ensure_required_python() {
 
 cd "${PROJECT_DIR}"
 if [[ -d "${venv_path}" ]]; then
+    # A PROJECT_VENV_PATH that names a directory with other content is a misconfiguration, so do not wipe it.
+    if [[ -n "${PROJECT_VENV_PATH:-}" && ! -f "${venv_path}/bin/activate" && -n "$(ls -A "${venv_path}")" ]]; then
+        echo "Refusing to replace ${venv_path}: PROJECT_VENV_PATH points at a directory that is not a venv (no bin/activate)" >&2
+        exit 1
+    fi
     echo "Removing existing venv at ${venv_path}..." >&2
-    rm -rf "${venv_path}"
+    # Empty the directory before removing it: it is a mount point when the venv lives in a docker volume (the
+    # devcontainer), and rm -rf fails on a mount point with "Device or resource busy".
+    find "${venv_path}" -mindepth 1 -delete
+    rmdir "${venv_path}" 2>/dev/null || true
     echo "Existing venv removed" >&2
 else
     echo "No existing venv found" >&2
