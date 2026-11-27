@@ -2,10 +2,13 @@ import logging
 import subprocess
 import tempfile
 import time
+from base64 import b64encode
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from typing import Optional
 
 import requests
+import semver
 
 
 @dataclass(init=True)
@@ -30,16 +33,25 @@ class CsrfHtmlParser(HTMLParser):
 
 
 class OMQueryableBackup:
-    def __init__(self, om_url, project_id):
+    def __init__(self, om_url, project_id, om_version: Optional[str] = None):
         self._om_url = om_url
         self._project_id = project_id
+        self._om_version = om_version
 
     def _login(self):
         endpoint = f"{self._om_url}/user/v1/auth"
         headers = {"Content-Type": "application/json"}
+
+        password = "Passw0rd."
+        # Ops Manager 8.0.26 and newer expect the password base64 encoded, the way their own UI
+        # sends it (CLOUDP-427896). Older versions, 7.0.x in particular, expect the plain
+        # password and answer 400 to the encoded one.
+        if self._om_version and semver.VersionInfo.parse(self._om_version) >= semver.VersionInfo.parse("8.0.26"):
+            password = b64encode(password.encode("utf-8")).decode("ascii")
+
         data = {
             "username": "jane.doe@example.com",
-            "password": "Passw0rd.",
+            "password": password,
             "reCaptchaResponse": None,
         }
 
@@ -111,7 +123,7 @@ class OMQueryableBackup:
                 time_needed = initial_timeout - timeout
                 print(f"needed {time_needed} seconds to be able to query backups")
                 return
-            last_reached_state = restore_entries[0].get("progressPhase")
+            last_reached_state = restore_entries[0].get("progressPhase") if restore_entries else ""
             time.sleep(3)
             timeout -= 3
 
