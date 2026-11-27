@@ -81,17 +81,27 @@ def _tester(mdb: MongoDB) -> MongoTester:
 
 
 @fixture(scope="module")
-def non_static_to_static_ga_mdb(namespace, custom_mdb_version: str) -> MongoDB:
+def operator_ready(operator: Operator) -> Operator:
+    """Wait for the operator before any class creates a cluster.
+
+    This is a fixture rather than a test so it runs whichever class the variant selects.
+    """
+    operator.wait_for_operator_ready()
+    return operator
+
+
+@fixture(scope="module")
+def non_static_to_static_ga_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
     return _new_cluster(namespace, NON_STATIC_TO_STATIC_GA, custom_mdb_version, "non-static")
 
 
 @fixture(scope="module")
-def non_static_to_static_mdb(namespace, custom_mdb_version: str) -> MongoDB:
+def non_static_to_static_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
     return _new_cluster(namespace, NON_STATIC_TO_STATIC, custom_mdb_version, "non-static")
 
 
 @fixture(scope="module")
-def static_to_static_ga_mdb(namespace, custom_mdb_version: str) -> MongoDB:
+def static_to_static_ga_mdb(namespace, custom_mdb_version: str, operator_ready: Operator) -> MongoDB:
     return _new_cluster(namespace, STATIC_TO_STATIC_GA, custom_mdb_version, "static")
 
 
@@ -109,9 +119,6 @@ def static_to_static_ga_health_checker(static_to_static_ga_mdb: MongoDB) -> Mong
 @pytest.mark.e2e_sharded_cluster_migration
 class TestShardedClusterMigrationNonStaticToStaticGA:
     """non-static to static-ga, the pair the non-static variant default selects."""
-
-    def test_install_operator(self, operator: Operator):
-        operator.wait_for_operator_ready()
 
     def test_create_cluster(self, non_static_to_static_ga_mdb: MongoDB):
         non_static_to_static_ga_mdb.update()
