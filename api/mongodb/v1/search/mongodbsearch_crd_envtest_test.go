@@ -105,6 +105,27 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			errorContains: "exactly one of managed or unmanaged must be set",
 		},
 		{
+			name: "circuit breaker accepts a fixed retry limit (budgetPercent 0)",
+			create: []searchv1.ClusterSpec{{LoadBalancer: managedLBWithCircuitBreaker(searchv1.EnvoyCircuitBreaker{
+				MaxConnections: new(uint32(1)), MaxPendingRequests: new(uint32(1)), MaxRequests: new(uint32(1)),
+				RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(0)), MinRetryConcurrency: new(uint32(1))},
+			})}},
+		},
+		{
+			name: "circuit breaker retry budget percent is at most 100",
+			create: []searchv1.ClusterSpec{{LoadBalancer: managedLBWithCircuitBreaker(searchv1.EnvoyCircuitBreaker{
+				RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(101))},
+			})}},
+			errorContains: "should be less than or equal to 100",
+		},
+		{
+			name: "circuit breaker min retry concurrency is at least 1",
+			create: []searchv1.ClusterSpec{{LoadBalancer: managedLBWithCircuitBreaker(searchv1.EnvoyCircuitBreaker{
+				RetryBudget: &searchv1.EnvoyRetryBudget{MinRetryConcurrency: new(uint32(0))},
+			})}},
+			errorContains: "should be greater than or equal to 1",
+		},
+		{
 			name: "cluster names are required when more than one cluster is specified",
 			create: []searchv1.ClusterSpec{
 				{Index: new(int32(0))},
@@ -164,6 +185,10 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 
 // TestMongoDBSearchCELValidationSourceOIDC proves the spec.source.oidc CEL rules on a
 // real Kubernetes API server (envtest), like TestMongoDBSearchCELValidation.
+func managedLBWithCircuitBreaker(cb searchv1.EnvoyCircuitBreaker) *searchv1.LoadBalancerConfig {
+	return &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{CircuitBreaker: &cb}}
+}
+
 func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client

@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"k8s.io/utils/ptr"
 
 	accesslogv3 "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
@@ -28,6 +29,7 @@ import (
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	matcherv3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 )
@@ -41,6 +43,15 @@ const (
 	// SearchEnvoyMetadata{routed_from_another_shard: true}.
 	// Proto wire: field 1 (varint) = true → bytes [0x08, 0x01] → base64 "CAE="
 	searchEnvoyMetadataRoutedValue = "CAE="
+
+	// Circuit breaker defaults, overridable through spec.clusters[].loadBalancer.managed.circuitBreaker.
+	defaultEnvoyClusterMaxConnections     = uint32(1024)
+	defaultEnvoyClusterMaxPendingRequests = uint32(1024)
+	defaultEnvoyClusterMaxRequests        = uint32(1024)
+	defaultEnvoyRetryBudgetPercent        = uint32(20)
+	// The default retry floor is this share of maxRequests. Requests waiting in retry backoff do not count
+	// as active, so under heavy load shedding the budget percentage alone falls towards the floor.
+	defaultEnvoyMinRetryConcurrencyDivisor = uint32(4)
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -107,10 +118,10 @@ func buildBootstrapJSON() (string, error) {
 
 // buildCDSJSON builds the CDS (Cluster Discovery Service) DiscoveryResponse JSON containing all upstream clusters.
 // Each route produces one cluster pointing to a mongot group's headless service.
-func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
+func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string, cb *searchv1.EnvoyCircuitBreaker) (string, error) {
 	resources := make([]*anypb.Any, 0, len(routes))
 	for _, route := range routes {
-		cluster, err := buildCluster(route, tlsEnabled, caKeyName)
+		cluster, err := buildCluster(route, tlsEnabled, caKeyName, cb)
 		if err != nil {
 			return "", fmt.Errorf("failed to build cluster for route %s: %w", route.Name, err)
 		}
@@ -370,8 +381,31 @@ func buildLbEndpoints(route envoyRoute) []*endpointv3.LbEndpoint {
 	return eps
 }
 
+// buildCircuitBreakerThresholds builds the cluster limits from user config (or defaults).
+// Retries are limited by a retry budget, so Envoy ignores max_retries and it is left unset.
+func buildCircuitBreakerThresholds(cb *searchv1.EnvoyCircuitBreaker) *clusterv3.CircuitBreakers_Thresholds {
+	if cb == nil {
+		cb = &searchv1.EnvoyCircuitBreaker{}
+	}
+	budget := cb.RetryBudget
+	if budget == nil {
+		budget = &searchv1.EnvoyRetryBudget{}
+	}
+	maxRequests := ptr.Deref(cb.MaxRequests, defaultEnvoyClusterMaxRequests)
+	return &clusterv3.CircuitBreakers_Thresholds{
+		Priority:           corev3.RoutingPriority_DEFAULT,
+		MaxConnections:     wrapperspb.UInt32(ptr.Deref(cb.MaxConnections, defaultEnvoyClusterMaxConnections)),
+		MaxPendingRequests: wrapperspb.UInt32(ptr.Deref(cb.MaxPendingRequests, defaultEnvoyClusterMaxPendingRequests)),
+		MaxRequests:        wrapperspb.UInt32(maxRequests),
+		RetryBudget: &clusterv3.CircuitBreakers_Thresholds_RetryBudget{
+			BudgetPercent:       &typev3.Percent{Value: float64(ptr.Deref(budget.BudgetPercent, defaultEnvoyRetryBudgetPercent))},
+			MinRetryConcurrency: wrapperspb.UInt32(ptr.Deref(budget.MinRetryConcurrency, max(maxRequests/defaultEnvoyMinRetryConcurrencyDivisor, 1))),
+		},
+	}
+}
+
 // buildCluster builds an upstream cluster for one route.
-func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
+func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string, cb *searchv1.EnvoyCircuitBreaker) (*clusterv3.Cluster, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
 
 	upstreamHTTPOpts, err := anypb.New(&upstreamhttpv3.HttpProtocolOptions{
@@ -413,15 +447,7 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 			},
 		},
 		CircuitBreakers: &clusterv3.CircuitBreakers{
-			Thresholds: []*clusterv3.CircuitBreakers_Thresholds{
-				{
-					Priority:           corev3.RoutingPriority_DEFAULT,
-					MaxConnections:     wrapperspb.UInt32(1024),
-					MaxPendingRequests: wrapperspb.UInt32(1024),
-					MaxRequests:        wrapperspb.UInt32(1024),
-					MaxRetries:         wrapperspb.UInt32(3),
-				},
-			},
+			Thresholds: []*clusterv3.CircuitBreakers_Thresholds{buildCircuitBreakerThresholds(cb)},
 		},
 		UpstreamConnectionOptions: &clusterv3.UpstreamConnectionOptions{
 			TcpKeepalive: &corev3.TcpKeepalive{

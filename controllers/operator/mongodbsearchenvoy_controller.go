@@ -314,14 +314,16 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	cdsJSON, err := buildCDSJSON(routes, tlsEnabled, caKeyName)
-	if err != nil {
-		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
-	}
 	managedLB := search.GetManagedLBForCluster(clusterName)
 	var retryPolicy *searchv1.EnvoyRetryPolicy
+	var circuitBreaker *searchv1.EnvoyCircuitBreaker
 	if managedLB != nil {
 		retryPolicy = managedLB.RetryPolicy
+		circuitBreaker = managedLB.CircuitBreaker
+	}
+	cdsJSON, err := buildCDSJSON(routes, tlsEnabled, caKeyName, circuitBreaker)
+	if err != nil {
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName, retryPolicy)
 	if err != nil {

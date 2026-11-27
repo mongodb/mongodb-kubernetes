@@ -5158,6 +5158,54 @@ spec:
                           description: Managed configures an operator-managed Envoy
                             load balancer.
                           properties:
+                            circuitBreaker:
+                              description: |-
+                                CircuitBreaker sets Envoy's per-mongot-cluster concurrency limits.
+                                When not set, every limit uses its default.
+                              properties:
+                                maxConnections:
+                                  description: MaxConnections is the maximum number
+                                    of connections to the mongot cluster. Defaults
+                                    to 1024.
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                maxPendingRequests:
+                                  description: MaxPendingRequests is the maximum number
+                                    of requests waiting for a connection. Defaults
+                                    to 1024.
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                maxRequests:
+                                  description: MaxRequests is the maximum number of
+                                    concurrent requests to the mongot cluster. Defaults
+                                    to 1024.
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                retryBudget:
+                                  description: |-
+                                    RetryBudget limits concurrent retries to a percentage of active requests.
+                                    When not set, the defaults below apply.
+                                  properties:
+                                    budgetPercent:
+                                      description: |-
+                                        BudgetPercent is the percentage of active and pending requests that may be retries at once.
+                                        Set it to 0 to use minRetryConcurrency as a fixed limit. Defaults to 20.
+                                      format: int32
+                                      maximum: 100
+                                      minimum: 0
+                                      type: integer
+                                    minRetryConcurrency:
+                                      description: |-
+                                        MinRetryConcurrency is the number of concurrent retries always allowed, whatever the percentage gives.
+                                        Defaults to 25% of maxRequests (at least 1).
+                                      format: int32
+                                      minimum: 1
+                                      type: integer
+                                  type: object
+                              type: object
                             deployment:
                               description: |-
                                 Deployment holds optional overrides merged into the operator-created Envoy Deployment.

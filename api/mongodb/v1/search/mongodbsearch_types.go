@@ -408,6 +408,45 @@ type ManagedLBConfig struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MinMongotReadyReplicas *int32 `json:"minMongotReadyReplicas,omitempty"`
+	// CircuitBreaker sets Envoy's per-mongot-cluster concurrency limits.
+	// When not set, every limit uses its default.
+	// +optional
+	CircuitBreaker *EnvoyCircuitBreaker `json:"circuitBreaker,omitempty"`
+}
+
+// EnvoyCircuitBreaker sets the concurrency limits Envoy applies to each upstream mongot cluster.
+type EnvoyCircuitBreaker struct {
+	// MaxConnections is the maximum number of connections to the mongot cluster. Defaults to 1024.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxConnections *uint32 `json:"maxConnections,omitempty"`
+	// MaxPendingRequests is the maximum number of requests waiting for a connection. Defaults to 1024.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxPendingRequests *uint32 `json:"maxPendingRequests,omitempty"`
+	// MaxRequests is the maximum number of concurrent requests to the mongot cluster. Defaults to 1024.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxRequests *uint32 `json:"maxRequests,omitempty"`
+	// RetryBudget limits concurrent retries to a percentage of active requests.
+	// When not set, the defaults below apply.
+	// +optional
+	RetryBudget *EnvoyRetryBudget `json:"retryBudget,omitempty"`
+}
+
+// EnvoyRetryBudget limits concurrent retries to max(budgetPercent% of active and pending requests, minRetryConcurrency).
+type EnvoyRetryBudget struct {
+	// BudgetPercent is the percentage of active and pending requests that may be retries at once.
+	// Set it to 0 to use minRetryConcurrency as a fixed limit. Defaults to 20.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	BudgetPercent *uint32 `json:"budgetPercent,omitempty"`
+	// MinRetryConcurrency is the number of concurrent retries always allowed, whatever the percentage gives.
+	// Defaults to 25% of maxRequests (at least 1).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MinRetryConcurrency *uint32 `json:"minRetryConcurrency,omitempty"`
 }
 
 // EnvoyRetryPolicy configures retry behavior for individual gRPC streams to upstream mongot clusters.

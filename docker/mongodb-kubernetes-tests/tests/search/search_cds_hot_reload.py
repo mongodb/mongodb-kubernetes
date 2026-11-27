@@ -1,9 +1,9 @@
 """E2E test: Envoy CDS hot-reload does not break active cursors.
 
-Proves that filesystem xDS CDS reload (triggered by ConfigMap update)
-does not disrupt in-flight gRPC streams. The test opens a paging cursor,
-patches the CDS ConfigMap with a circuit breaker change, waits for
-envoy to reload, then verifies the cursor still works.
+Proves that filesystem xDS CDS reload does not disrupt in-flight gRPC streams.
+The test opens a paging cursor, changes spec.clusters[].loadBalancer.managed.circuitBreaker on the
+MongoDBSearch resource, waits for envoy to reload the rendered CDS, then
+verifies the cursor still works.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from tests.common.search.bootstrap_test_mixins import (
     SearchShardedDeploymentTests,
     SearchShardedSampleDataAndIndex,
 )
-from tests.common.search.connectivity import SearchConnectivityTool, set_resource_disabled_annotation
+from tests.common.search.connectivity import SearchConnectivityTool
 from tests.common.search.sharded_search_helper import sharded_search_tester
 from tests.conftest import get_namespace
 
@@ -40,6 +40,8 @@ NAMESPACE = get_namespace()
 MDB = MongoDBDeploymentConfig(mdb_resource_name="mdb-sh-cds-reload", shard_count=2)
 SEARCH = SearchDeploymentConfig()
 MDBS_NAME = MDB.mdb_resource_name
+# Default is 1024; any other value proves the CR field reaches the rendered CDS.
+RELOADED_MAX_CONNECTIONS = 2048
 
 
 def _user_tool(namespace: str) -> SearchConnectivityTool:
@@ -82,7 +84,7 @@ class TestSampleData(SearchShardedSampleDataAndIndex):
 
 
 class TestSearchCDSHotReload:
-    """Patch the envoy CDS ConfigMap mid-cursor; the reload must not break streams."""
+    """Change the circuit breaker on the CR mid-cursor; the CDS reload must not break streams."""
 
     @fixture(scope="module")
     def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
@@ -104,9 +106,6 @@ class TestSearchCDSHotReload:
             assert all(p.success for p in pre_pages), f"pre-reload pages should all succeed: {pre_pages}"
             logger.info(f"Pre-reload: {len(pre_pages)} pages read successfully")
 
-            # Disable reconciliation so the operator won't overwrite our ConfigMap patch
-            set_resource_disabled_annotation(mdbs, True)
-
             # Record envoy pod identity before the reload
             envoy_pod = _get_envoy_pod(namespace, mdbs.name)
             pre_pod_name = envoy_pod.metadata.name
@@ -120,15 +119,16 @@ class TestSearchCDSHotReload:
             # Start background availability tester — continuously reads pages
             # throughout the disruption window to catch any transient blips.
             with SearchAvailabilityBackgroundTester(tool, mode="paging") as bg:
-                # Patch CDS ConfigMap with modified circuit breaker
-                cm_name = search_resource_names.lb_configmap_name(mdbs.name)
-                cm_data = KubernetesTester.read_configmap(namespace, cm_name)
-                patched_cds = _modify_cds_circuit_breaker(cm_data["cds.json"])
-                logger.info(f"Patching ConfigMap {cm_name} with modified circuit breaker (max_connections doubled)")
-                KubernetesTester.update_configmap(namespace, cm_name, {**cm_data, "cds.json": patched_cds})
+                mdbs.load()
+                mdbs["spec"]["clusters"][0]["loadBalancer"]["managed"]["circuitBreaker"] = {
+                    "maxConnections": RELOADED_MAX_CONNECTIONS
+                }
+                logger.info(f"Setting circuitBreaker.maxConnections={RELOADED_MAX_CONNECTIONS} on {mdbs.name}")
+                mdbs.update()
 
                 # Wait for Envoy to reload (poll stats until cds.update_success increments)
                 _wait_for_cds_reload(search_tools_pod, envoy_pod_ip, initial_cds_updates)
+                _assert_cds_max_connections(namespace, mdbs.name, RELOADED_MAX_CONNECTIONS)
 
                 # Verify envoy pod was NOT restarted or replaced
                 post_pod = _get_envoy_pod(namespace, mdbs.name)
@@ -156,7 +156,6 @@ class TestSearchCDSHotReload:
             assert verdict.succeeded > 0, "expected successful pages after reload"
         finally:
             cursor.close()
-            set_resource_disabled_annotation(mdbs, False)
 
 
 def _wait_for_search_serving(tool: SearchConnectivityTool, timeout: float = 300.0) -> None:
@@ -205,31 +204,12 @@ def _wait_for_cds_reload(
     run_periodically(check, timeout=timeout, sleep_time=5, msg="Envoy CDS reload")
 
 
-def _modify_cds_circuit_breaker(cds_json: str) -> str:
-    """Parse CDS JSON and bump max_connections from 1024 to 2048 on all clusters.
-
-    Actual CDS JSON structure (from ConfigMap):
-    {
-      "resources": [{
-        "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
-        "circuit_breakers": {
-          "thresholds": [{
-            "max_connections": 1024,
-            "max_pending_requests": 1024,
-            "max_requests": 1024,
-            "max_retries": 3
-          }]
-        }
-      }]
-    }
-    """
-    cds = json.loads(cds_json)
-    modified_count = 0
-    for resource in cds.get("resources", []):
-        thresholds = resource.get("circuit_breakers", {}).get("thresholds", [])
-        for threshold in thresholds:
-            current = threshold.get("max_connections", 1024)
-            threshold["max_connections"] = current * 2
-            modified_count += 1
-    logger.info(f"Modified circuit breaker max_connections on {modified_count} threshold(s)")
-    return json.dumps(cds, indent=2)
+def _assert_cds_max_connections(namespace: str, search_name: str, expected: int) -> None:
+    """Assert every cluster in the rendered CDS ConfigMap carries the expected max_connections."""
+    cm_name = search_resource_names.lb_configmap_name(search_name)
+    cds = json.loads(KubernetesTester.read_configmap(namespace, cm_name)["cds.json"])
+    thresholds = [t for r in cds["resources"] for t in r["circuit_breakers"]["thresholds"]]
+    assert thresholds, f"no circuit breaker thresholds in {cm_name}"
+    assert all(
+        t["max_connections"] == expected for t in thresholds
+    ), f"{cm_name} max_connections != {expected}: {thresholds}"

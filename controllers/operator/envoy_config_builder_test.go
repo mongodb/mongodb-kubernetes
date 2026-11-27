@@ -95,7 +95,7 @@ func TestBuildBootstrapJSON(t *testing.T) {
 
 func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)))
 
@@ -121,8 +121,15 @@ func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
 	// Circuit breakers
 	require.NotNil(t, cluster.CircuitBreakers)
 	require.Len(t, cluster.CircuitBreakers.Thresholds, 1)
-	assert.Equal(t, corev3.RoutingPriority_DEFAULT, cluster.CircuitBreakers.Thresholds[0].Priority)
-	assert.Equal(t, uint32(1024), cluster.CircuitBreakers.Thresholds[0].MaxConnections.GetValue())
+	thresholds := cluster.CircuitBreakers.Thresholds[0]
+	assert.Equal(t, corev3.RoutingPriority_DEFAULT, thresholds.Priority)
+	assert.Equal(t, uint32(1024), thresholds.MaxConnections.GetValue())
+	assert.Equal(t, uint32(1024), thresholds.MaxPendingRequests.GetValue())
+	assert.Equal(t, uint32(1024), thresholds.MaxRequests.GetValue())
+	assert.Nil(t, thresholds.MaxRetries, "Envoy ignores max_retries when a retry budget is set")
+	require.NotNil(t, thresholds.RetryBudget)
+	assert.Equal(t, float64(20), thresholds.RetryBudget.BudgetPercent.GetValue())
+	assert.Equal(t, uint32(256), thresholds.RetryBudget.MinRetryConcurrency.GetValue(), "25% of maxRequests")
 
 	// TCP keepalive
 	require.NotNil(t, cluster.UpstreamConnectionOptions)
@@ -132,7 +139,7 @@ func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
 
 func TestBuildCDSJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildCDSJSON([]envoyRoute{route}, true, testCAKeyName())
+	result, err := buildCDSJSON([]envoyRoute{route}, true, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -155,7 +162,7 @@ func TestBuildCDSJSON_MultipleShards(t *testing.T) {
 		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "s0.ns.svc.cluster.local", UpstreamHosts: []string{"m0.ns.svc.cluster.local"}, UpstreamPort: 27028},
 		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "s1.ns.svc.cluster.local", UpstreamHosts: []string{"m1.ns.svc.cluster.local"}, UpstreamPort: 27028},
 	}
-	result, err := buildCDSJSON(routes, false, testCAKeyName())
+	result, err := buildCDSJSON(routes, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -276,7 +283,7 @@ func TestBuildCDSJSON_ReplicaSet_NoTLS(t *testing.T) {
 		UpstreamPort:  27028,
 	}
 
-	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName())
+	result, err := buildCDSJSON([]envoyRoute{route}, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	resp := unmarshalDiscoveryResponse(t, result)
@@ -370,7 +377,7 @@ func TestBuildUpstreamTLS_PerShardRoute_SNISet(t *testing.T) {
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	cluster, err := buildCluster(route, false, testCAKeyName())
+	cluster, err := buildCluster(route, false, testCAKeyName(), nil)
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
@@ -379,6 +386,45 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")
+}
+
+func TestBuildCircuitBreakerThresholds_Overrides(t *testing.T) {
+	tests := map[string]struct {
+		cb                                                           *searchv1.EnvoyCircuitBreaker
+		connections, pending, requests, budgetPercent, minRetryConcy uint32
+	}{
+		"only retry budget percent": {
+			cb:          &searchv1.EnvoyCircuitBreaker{RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(0))}},
+			connections: 1024, pending: 1024, requests: 1024, budgetPercent: 0, minRetryConcy: 256,
+		},
+		"retry floor follows maxRequests": {
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: new(uint32(30))},
+			connections: 1024, pending: 1024, requests: 30, budgetPercent: 20, minRetryConcy: 7,
+		},
+		"retry floor is at least 1": {
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: new(uint32(1))},
+			connections: 1024, pending: 1024, requests: 1, budgetPercent: 20, minRetryConcy: 1,
+		},
+		"all limits": {
+			cb: &searchv1.EnvoyCircuitBreaker{
+				MaxConnections:     new(uint32(10)),
+				MaxPendingRequests: new(uint32(20)),
+				MaxRequests:        new(uint32(30)),
+				RetryBudget:        &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(50)), MinRetryConcurrency: new(uint32(40))},
+			},
+			connections: 10, pending: 20, requests: 30, budgetPercent: 50, minRetryConcy: 40,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			th := buildCircuitBreakerThresholds(tc.cb)
+			assert.Equal(t, tc.connections, th.MaxConnections.GetValue())
+			assert.Equal(t, tc.pending, th.MaxPendingRequests.GetValue())
+			assert.Equal(t, tc.requests, th.MaxRequests.GetValue())
+			assert.Equal(t, float64(tc.budgetPercent), th.RetryBudget.BudgetPercent.GetValue())
+			assert.Equal(t, tc.minRetryConcy, th.RetryBudget.MinRetryConcurrency.GetValue())
+		})
+	}
 }
 
 func TestBuildRetryPolicy_PartialOverride(t *testing.T) {
