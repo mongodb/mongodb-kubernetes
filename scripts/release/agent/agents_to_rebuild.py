@@ -3,6 +3,7 @@
 Detects changes to opsManagerMapping in release.json for triggering agent releases.
 Relies on should_release_agents_on_ecr.sh diffing local release.json against the branch's remote state.
 """
+
 import json
 import logging
 import subprocess

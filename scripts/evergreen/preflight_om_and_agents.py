@@ -5,6 +5,7 @@ Preflight Ops Manager and agent images using the same version set as release_om_
 Order matches release_om_and_agents.main: cloud_manager agent, then each anchor OM (ops-manager + agent).
 Skips duplicate agent tags when the same version would be preflighted twice.
 """
+
 import logging
 import os
 import subprocess
