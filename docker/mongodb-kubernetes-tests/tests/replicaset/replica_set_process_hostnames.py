@@ -1,6 +1,6 @@
 # This test currently relies on MetalLB IP assignment that is configured for kind in scripts/dev/recreate_kind_cluster.sh
-# Each service of type LoadBalancer will get IP starting from 172.18.255.200
-# scripts/dev/coredns_single_cluster.yaml configures that my-replica-set-0.mongodb.interconnected starts at 172.18.255.200
+# Each service of type LoadBalancer will get IP starting from the first address of the single-cluster MetalLB pool
+# scripts/dev/coredns_single_cluster.yaml configures that my-replica-set-0.mongodb.interconnected starts at that address
 
 # Tests checking externalDomain (consider updating all of them when changing test logic here):
 #   tls/tls_replica_set_process_hostnames.py
@@ -16,6 +16,7 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.common.placeholders import placeholders
 from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
+from tests.kind_network import kind_lb_ip
 
 
 @fixture
@@ -49,10 +50,10 @@ def replica_set(
 @pytest.mark.e2e_replica_set_process_hostnames
 def test_update_coredns():
     hosts = [
-        ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
-        ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
-        ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
-        ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
+        (kind_lb_ip("SINGLE"), "my-replica-set-0.mongodb.interconnected"),
+        (kind_lb_ip("SINGLE", 1), "my-replica-set-1.mongodb.interconnected"),
+        (kind_lb_ip("SINGLE", 2), "my-replica-set-2.mongodb.interconnected"),
+        (kind_lb_ip("SINGLE", 3), "my-replica-set-3.mongodb.interconnected"),
     ]
 
     update_coredns_hosts(hosts)
