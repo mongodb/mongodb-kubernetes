@@ -83,5 +83,4 @@ updates:
           - "*"
     labels:
       - dependencies
-      - github_actions
       - skip-changelog
