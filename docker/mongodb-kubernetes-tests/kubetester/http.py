@@ -10,6 +10,7 @@ def get_retriable_session(
     tls_verify: bool,
     status_forcelist: Optional[Collection[int]] = None,
     allowed_methods: Optional[Collection[str]] = Retry.DEFAULT_ALLOWED_METHODS,
+    respect_retry_after_header: bool = True,
 ) -> requests.Session:
     """
     Returns a request Session object with a retry mechanism.
@@ -19,6 +20,7 @@ def get_retriable_session(
     problems arising from request throttling.
 
     status_forcelist also retries those statuses. allowed_methods=None retries every method, POST included.
+    respect_retry_after_header=False ignores Retry-After, keeping the backoff schedule bounded.
     """
 
     s = requests.Session()
@@ -30,6 +32,7 @@ def get_retriable_session(
         status_forcelist=status_forcelist,
         allowed_methods=allowed_methods,
         raise_on_status=False,
+        respect_retry_after_header=respect_retry_after_header,
     )
     s.mount(proto + "://", HTTPAdapter(max_retries=retries))
 
@@ -41,8 +44,9 @@ def get_retriable_https_session(
     tls_verify: bool,
     status_forcelist: Optional[Collection[int]] = None,
     allowed_methods: Optional[Collection[str]] = Retry.DEFAULT_ALLOWED_METHODS,
+    respect_retry_after_header: bool = True,
 ) -> requests.Session:
-    return get_retriable_session("https", tls_verify, status_forcelist, allowed_methods)
+    return get_retriable_session("https", tls_verify, status_forcelist, allowed_methods, respect_retry_after_header)
 
 
 def https_endpoint_is_reachable(url: str, auth: Tuple[str, str], *, tls_verify: bool) -> bool:
