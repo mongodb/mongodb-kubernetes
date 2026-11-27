@@ -643,9 +643,9 @@ type S3Config struct {
 	// +optional
 	S3RegionOverride string `json:"s3RegionOverride"`
 	// Set this to "true" to use the appDBCa as a CA to access S3.
-	// Deprecated: This has been replaced by CustomCertificateSecretRefs,
+	// Deprecated: This has been replaced by CustomCertificateConfigMapRefs and CustomCertificateSecretRefs.
 	// In the future all custom certificates, which includes the appDBCa
-	// for s3Config should be configured in CustomCertificateSecretRefs instead.
+	// for s3Config should be configured in CustomCertificateConfigMapRefs or CustomCertificateSecretRefs instead.
 	// +optional
 	CustomCertificate bool `json:"customCertificate"`
 	// This is only set to "true" when a user is running in EKS and is using AWS IRSA to configure
@@ -656,9 +656,14 @@ type S3Config struct {
 	// +optional
 	AssignmentLabels []string `json:"assignmentLabels"`
 	// CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
-	// that apply to the associated S3 bucket.
+	// that apply to the associated S3 bucket. A CA certificate holds only public data, so prefer
+	// CustomCertificateConfigMapRefs. Both fields can be used together.
 	// +optional
 	CustomCertificateSecretRefs []corev1.SecretKeySelector `json:"customCertificateSecretRefs"`
+	// CustomCertificateConfigMapRefs is a list of valid Certificate Authority certificate ConfigMaps
+	// that apply to the associated S3 bucket. Both fields can be used together.
+	// +optional
+	CustomCertificateConfigMapRefs []corev1.ConfigMapKeySelector `json:"customCertificateConfigMapRefs,omitempty"`
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled to leverage Immutable Backups.
 	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the S3 Object Lock settings

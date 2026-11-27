@@ -1,6 +1,6 @@
 from typing import Iterator, Optional
 
-from kubetester import create_or_update_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, try_load, wait_until
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
@@ -14,12 +14,16 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
-This test checks the work with TLS-enabled backing databases (oplog & blockstore)
+This test checks the work with TLS-enabled backing databases (oplog & blockstore).
+The S3 store CA certificates are first provided through Secrets, then through ConfigMaps.
+Finally the content of a CA Secret is rotated without changing the Ops Manager spec, which
+must still reach Ops Manager.
 """
 
 S3_TEST_CA1 = "s3-test-ca-1"
 S3_TEST_CA2 = "s3-test-ca-2"
 S3_NOT_WORKING_CA = "not-working-ca"
+S3_ROTATED_CA = "s3-rotated-ca"
 
 
 @fixture(scope="module")
@@ -52,6 +56,20 @@ def duplicate_configmap_ca(namespace, amazon_ca_1_filepath, amazon_ca_2_filepath
     ca = open(ca_path).read()
     data = {"ca-pem": ca}
     create_or_update_secret(namespace, S3_NOT_WORKING_CA, data)
+
+
+@fixture(scope="module")
+def s3_ca_bundles(amazon_ca_1_filepath, amazon_ca_2_filepath, ca_path) -> dict[str, str]:
+    return {
+        "working": open(amazon_ca_1_filepath).read() + open(amazon_ca_2_filepath).read(),
+        "not_working": open(ca_path).read(),
+    }
+
+
+@fixture(scope="module")
+def s3_ca_configmaps(namespace, amazon_ca_1_filepath, amazon_ca_2_filepath):
+    create_or_update_configmap(namespace, S3_TEST_CA1, {"ca-pem": open(amazon_ca_1_filepath).read()})
+    create_or_update_configmap(namespace, S3_TEST_CA2, {"ca-pem": open(amazon_ca_2_filepath).read()})
 
 
 @fixture(scope="module")
@@ -148,3 +166,67 @@ class TestOpsManagerCreation:
         b = om_tester.get_oplog_s3_stores()
         assert b["results"][0]["customCertificates"][0]["filename"] == f"{S3_TEST_CA1}/ca-pem"
         assert b["results"][0]["customCertificates"][1]["filename"] == f"{S3_TEST_CA2}/ca-pem"
+
+    def test_om_with_custom_cert_from_configmaps(self, ops_manager: MongoDBOpsManager, s3_ca_configmaps):
+        ops_manager.load()
+        custom_certificate = [
+            {"name": S3_TEST_CA1, "key": "ca-pem"},
+            {"name": S3_TEST_CA2, "key": "ca-pem"},
+        ]
+
+        for store in ("s3OpLogStores", "s3Stores"):
+            ops_manager["spec"]["backup"][store][0]["customCertificateSecretRefs"] = []
+            ops_manager["spec"]["backup"][store][0]["customCertificateConfigMapRefs"] = custom_certificate
+
+        ops_manager.update()
+
+    def test_om_s3_stores_use_configmap_certs(self, ops_manager: MongoDBOpsManager):
+        om_tester = ops_manager.get_om_tester()
+        expected = [f"configmap/{S3_TEST_CA1}/ca-pem", f"configmap/{S3_TEST_CA2}/ca-pem"]
+
+        def custom_certificate_filenames(stores) -> list[str]:
+            return [c["filename"] for c in stores["results"][0]["customCertificates"]]
+
+        def stores_use_configmap_certs() -> bool:
+            return (
+                custom_certificate_filenames(om_tester.get_s3_stores()) == expected
+                and custom_certificate_filenames(om_tester.get_oplog_s3_stores()) == expected
+            )
+
+        wait_until(stores_use_configmap_certs, timeout=600)
+
+    def test_om_is_running_with_configmap_certs(self, ops_manager: MongoDBOpsManager):
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
+        ops_manager.get_om_tester().assert_healthiness()
+
+    def test_om_with_rotatable_ca_secret(self, ops_manager: MongoDBOpsManager, namespace: str, s3_ca_bundles):
+        create_or_update_secret(namespace, S3_ROTATED_CA, {"ca-pem": s3_ca_bundles["working"]})
+
+        ops_manager.load()
+        for store in ("s3OpLogStores", "s3Stores"):
+            ops_manager["spec"]["backup"][store][0]["customCertificateConfigMapRefs"] = []
+            ops_manager["spec"]["backup"][store][0]["customCertificateSecretRefs"] = [
+                {"name": S3_ROTATED_CA, "key": "ca-pem"}
+            ]
+        ops_manager.update()
+
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
+
+    def test_rotating_ca_secret_reaches_om(self, ops_manager: MongoDBOpsManager, namespace: str, s3_ca_bundles):
+        # Only the Secret data changes. A Running Ops Manager is not requeued on its own, so
+        # backup can only fail here if the operator reacts to the Secret change.
+        create_or_update_secret(namespace, S3_ROTATED_CA, {"ca-pem": s3_ca_bundles["not_working"]})
+
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Failed,
+            timeout=600,
+            msg_regexp=".* valid certification path to requested target.*",
+        )
+
+    def test_rotating_ca_secret_back_recovers_backup(
+        self, ops_manager: MongoDBOpsManager, namespace: str, s3_ca_bundles
+    ):
+        create_or_update_secret(namespace, S3_ROTATED_CA, {"ca-pem": s3_ca_bundles["working"]})
+
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
+        ops_manager.get_om_tester().assert_healthiness()
