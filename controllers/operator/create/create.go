@@ -624,6 +624,24 @@ func GetSharedServicePlaceholderReplacer(resourceName, statefulSetName, namespac
 	return placeholders.New(placeholderValues)
 }
 
+func GetMultiClusterSharedServicePlaceholderReplacer(resourceName, statefulSetName, namespace, serviceName, clusterName string, clusterNum int, clusterDomain string, resourceType mdbv1.ResourceType) *placeholders.Replacer {
+	placeholderValues := map[string]string{
+		PlaceholderNamespace:       namespace,
+		PlaceholderResourceName:    resourceName,
+		PlaceholderStatefulSetName: dns.GetMultiStatefulSetName(statefulSetName, clusterNum),
+		PlaceholderClusterName:     clusterName,
+		PlaceholderClusterIndex:    fmt.Sprintf("%d", clusterNum),
+	}
+
+	if resourceType == mdbv1.ShardedCluster {
+		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+	} else {
+		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+	}
+
+	return placeholders.New(placeholderValues)
+}
+
 func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, namespace string, clusterName string, clusterNum int, externalDomain *string, clusterDomain string, podIdx int) *placeholders.Replacer {
 	podName := dns.GetMultiPodName(stsName, clusterNum, podIdx)
 	serviceDomain := dns.GetServiceDomain(namespace, clusterDomain, externalDomain)
