@@ -16,3 +16,9 @@ patchesJson6902:
       kind: RoleBinding
       name: mongodb-kubernetes-appdb
     path: database-roles-patch-namespace.yaml
+  - target:
+      version: v1
+      group: rbac.authorization.k8s.io
+      kind: RoleBinding
+      name: mongodb-kubernetes-metrics-forwarder
+    path: database-roles-patch-namespace.yaml

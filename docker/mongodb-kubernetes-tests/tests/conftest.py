@@ -883,6 +883,7 @@ def _install_multi_cluster_operator(
         central_cluster_name,
         skip_central_cluster=True,
         helm_chart_path=helm_chart_path,
+        helm_chart_version=operator_version,
     )
 
     operator = Operator(

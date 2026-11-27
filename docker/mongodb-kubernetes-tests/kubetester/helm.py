@@ -45,6 +45,7 @@ def helm_template(
     helm_chart_path: Optional[str] = "helm_chart",
     templates: Optional[str] = None,
     helm_options: Optional[List[str]] = None,
+    version: Optional[str] = None,
 ) -> str:
     """generates yaml file using Helm and returns its name. Provide 'templates' if you need to run
     a specific template from the helm chart"""
@@ -53,6 +54,10 @@ def helm_template(
     if templates is not None:
         command_args.append("--show-only")
         command_args.append(templates)
+
+    # Without --version, helm resolves repo/OCI charts to the latest released version, not the one under test
+    if version:
+        command_args.append(f"--version={version}")
 
     helm_chart_path = helm_chart_path or "helm_chart"
     args = ("helm", "template", *command_args, helm_chart_path)

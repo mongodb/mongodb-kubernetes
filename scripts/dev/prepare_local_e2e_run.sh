@@ -90,7 +90,7 @@ test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongod
 # when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
 # Add Helm ownership metadata so that when Helm runs (in this script or in pytest)
 # it can adopt these resources instead of failing with "invalid ownership metadata".
-for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb; do
+for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb mongodb-kubernetes-metrics-forwarder; do
   kubectl create serviceaccount "${sa}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
   kubectl label serviceaccount "${sa}" -n "${NAMESPACE}" "app.kubernetes.io/managed-by=Helm" --overwrite
   kubectl annotate serviceaccount "${sa}" -n "${NAMESPACE}" \

@@ -527,6 +527,41 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 	}
 }
 
+func TestEnsureMetricsForwarderDeployment_ReportsReplicaFailure(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	const failureMsg = `pods "forwarder-" is forbidden: error looking up service account ns/mongodb-kubernetes-metrics-forwarder: serviceaccount "mongodb-kubernetes-metrics-forwarder" not found`
+	existing := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderDeploymentNameForCluster(0), Namespace: testNamespace},
+		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{
+			{Type: appsv1.DeploymentReplicaFailure, Status: corev1.ConditionTrue, Reason: "FailedCreate", Message: failureMsg},
+		}},
+	}
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(existing).Build()
+	r := newMongoDBSearchMetricsForwarderReconciler(c, testDefaultImage, corev1.PullAlways, nil, "")
+	work := r.buildClusterWorkList(search)[0]
+
+	err := r.ensureMetricsForwarderDeployment(t.Context(), search, []byte("receivers: {}"), testGroupID, "agent-key-secret", "", work, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), failureMsg)
+}
+
+func TestDeploymentReplicaFailure(t *testing.T) {
+	cond := func(ct appsv1.DeploymentConditionType, s corev1.ConditionStatus, msg string) appsv1.DeploymentCondition {
+		return appsv1.DeploymentCondition{Type: ct, Status: s, Message: msg}
+	}
+	dep := func(conds ...appsv1.DeploymentCondition) *appsv1.Deployment {
+		return &appsv1.Deployment{Status: appsv1.DeploymentStatus{Conditions: conds}}
+	}
+	assert.Empty(t, deploymentReplicaFailure(dep()))
+	assert.Empty(t, deploymentReplicaFailure(dep(cond(appsv1.DeploymentAvailable, corev1.ConditionFalse, "unavailable"))))
+	assert.Empty(t, deploymentReplicaFailure(dep(cond(appsv1.DeploymentReplicaFailure, corev1.ConditionFalse, "stale"))))
+	assert.Equal(t, "boom", deploymentReplicaFailure(dep(
+		cond(appsv1.DeploymentAvailable, corev1.ConditionFalse, "unavailable"),
+		cond(appsv1.DeploymentReplicaFailure, corev1.ConditionTrue, "boom"),
+	)))
+}
+
 // envMap indexes a container's environment variables by name for easy assertion.
 func envMap(env []corev1.EnvVar) map[string]corev1.EnvVar {
 	m := make(map[string]corev1.EnvVar, len(env))
@@ -645,6 +680,12 @@ func TestBuildMetricsForwarderPodSpec_ContainerArgs(t *testing.T) {
 	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	assert.Equal(t, []string{"--config", "/etc/otelcol/config.yaml"}, podSpec.Containers[0].Args)
+}
+
+func TestBuildMetricsForwarderPodSpec_ServiceAccount(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", "test-mdb")
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, metricsForwarderResourceRequirements(search), false)
+	assert.Equal(t, util.MetricsForwarderServiceAccount, podSpec.ServiceAccountName)
 }
 
 func TestMetricsForwarderLabels(t *testing.T) {
@@ -898,6 +939,31 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				"a successful reconcile must persist the cluster's topology state entry")
 		})
 	}
+}
+
+func TestReconcile_DeploymentReplicaFailureSurfacesInStatus(t *testing.T) {
+	const failureMsg = `error looking up service account ns/mongodb-kubernetes-metrics-forwarder: serviceaccount "mongodb-kubernetes-metrics-forwarder" not found`
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	failing := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderDeploymentNameForCluster(0), Namespace: testNamespace},
+		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{
+			{Type: appsv1.DeploymentReplicaFailure, Status: corev1.ConditionTrue, Reason: "FailedCreate", Message: failureMsg},
+		}},
+	}
+	central := mock.NewEmptyFakeClientBuilder().
+		WithObjects(mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace), failing).
+		Build()
+	r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, corev1.PullAlways, nil, "")
+	r.omRequester = newStubOMAgentRequester(testGroupID)
+
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	updatedSearch := getMongoDBSearch(t, central, testNamespace, testSearchName)
+	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
+	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, failureMsg)
 }
 
 func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {

@@ -28,6 +28,23 @@ kind: Role
 metadata:
   labels:
     multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
+  namespace: member-namespace
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role
   namespace: member-namespace
 rules:
@@ -103,6 +120,22 @@ kind: RoleBinding
 metadata:
   labels:
     multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
+  namespace: member-namespace
+roleRef:
+  apiGroup: ""
+  kind: Role
+  name: mongodb-kubernetes-metrics-forwarder
+subjects:
+- kind: ServiceAccount
+  name: mongodb-kubernetes-metrics-forwarder
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role-binding
   namespace: member-namespace
 roleRef:
@@ -131,6 +164,15 @@ metadata:
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-database-pods
+  namespace: member-namespace
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
   namespace: member-namespace
 
 ---

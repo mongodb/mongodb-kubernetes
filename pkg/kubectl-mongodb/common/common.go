@@ -73,6 +73,7 @@ const (
 	OpsManagerServiceAccount     = "mongodb-kubernetes-ops-manager"
 	AppdbRole                    = "mongodb-kubernetes-appdb"
 	AppdbRoleBinding             = "mongodb-kubernetes-appdb"
+	MetricsForwarderName         = "mongodb-kubernetes-metrics-forwarder"
 	DefaultOperatorName          = "mongodb-kubernetes-operator"
 	DefaultOperatorConfigMapName = DefaultOperatorName + "-member-list"
 )
@@ -1000,25 +1001,39 @@ func createServiceAccount(ctx context.Context, c KubeClient, serviceAccountName,
 	return sa, nil
 }
 
-func createDatabaseRole(ctx context.Context, c KubeClient, roleName, namespace string) error {
+func appdbRoleRules() []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{""},
+			Resources: []string{"secrets"},
+			Verbs:     []string{"get"},
+		},
+		{
+			APIGroups: []string{""},
+			Resources: []string{"pods"},
+			Verbs:     []string{"patch", "delete", "get"},
+		},
+	}
+}
+
+func metricsForwarderRoleRules() []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{""},
+			Resources: []string{"pods"},
+			Verbs:     []string{"get", "list"},
+		},
+	}
+}
+
+func createDatabaseRole(ctx context.Context, c KubeClient, roleName, serviceAccountName, namespace string, rules []rbacv1.PolicyRule) error {
 	role := rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"secrets"},
-				Verbs:     []string{"get"},
-			},
-			{
-				APIGroups: []string{""},
-				Resources: []string{"pods"},
-				Verbs:     []string{"patch", "delete", "get"},
-			},
-		},
+		Rules: rules,
 	}
 	roleBinding := rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1033,7 +1048,7 @@ func createDatabaseRole(ctx context.Context, c KubeClient, roleName, namespace s
 		Subjects: []rbacv1.Subject{
 			{
 				Kind: "ServiceAccount",
-				Name: AppdbServiceAccount,
+				Name: serviceAccountName,
 			},
 		},
 	}
@@ -1061,10 +1076,13 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 	if _, err := createServiceAccount(ctx, client, OpsManagerServiceAccount, f.MemberClusterNamespace, f.ImagePullSecrets); err != nil {
 		return err
 	}
-	if err := createDatabaseRole(ctx, client, AppdbRole, f.MemberClusterNamespace); err != nil {
+	if _, err := createServiceAccount(ctx, client, MetricsForwarderName, f.MemberClusterNamespace, f.ImagePullSecrets); err != nil {
 		return err
 	}
-	return nil
+	if err := createDatabaseRole(ctx, client, AppdbRole, AppdbServiceAccount, f.MemberClusterNamespace, appdbRoleRules()); err != nil {
+		return err
+	}
+	return createDatabaseRole(ctx, client, MetricsForwarderName, MetricsForwarderName, f.MemberClusterNamespace, metricsForwarderRoleRules())
 }
 
 // copyDatabaseRoles copies the ServiceAccounts, Roles and RoleBindings required for running database instances
@@ -1091,6 +1109,18 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	if err != nil {
 		return xerrors.Errorf("failed retrieving role binding %s from source cluster: %w", AppdbRoleBinding, err)
 	}
+	metricsForwarderSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", MetricsForwarderName, namespace, err)
+	}
+	metricsForwarderR, err := src.RbacV1().Roles(namespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed retrieving role %s from source cluster: %w", MetricsForwarderName, err)
+	}
+	metricsForwarderRB, err := src.RbacV1().RoleBindings(namespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("failed retrieving role binding %s from source cluster: %w", MetricsForwarderName, err)
+	}
 	if len(appdbSA.ImagePullSecrets) > 0 {
 		if err := copySecret(ctx, src, dst, namespace, appdbSA.ImagePullSecrets[0].Name); err != nil {
 			fmt.Printf("failed creating image pull secret %s: %s\n", appdbSA.ImagePullSecrets[0].Name, err)
@@ -1104,6 +1134,11 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	if len(opsManagerSA.ImagePullSecrets) > 0 {
 		if err := copySecret(ctx, src, dst, namespace, opsManagerSA.ImagePullSecrets[0].Name); err != nil {
 			fmt.Printf("failed creating image pull secret %s: %s\n", opsManagerSA.ImagePullSecrets[0].Name, err)
+		}
+	}
+	if len(metricsForwarderSA.ImagePullSecrets) > 0 {
+		if err := copySecret(ctx, src, dst, namespace, metricsForwarderSA.ImagePullSecrets[0].Name); err != nil {
+			fmt.Printf("failed creating image pull secret %s: %s\n", metricsForwarderSA.ImagePullSecrets[0].Name, err)
 		}
 	}
 	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
@@ -1136,6 +1171,16 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return xerrors.Errorf("error creating service account: %w", err)
 	}
+	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   metricsForwarderSA.Name,
+			Labels: metricsForwarderSA.Labels,
+		},
+		ImagePullSecrets: metricsForwarderSA.DeepCopy().ImagePullSecrets,
+	}, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating service account: %w", err)
+	}
 
 	_, err = dst.RbacV1().Roles(namespace).Create(ctx, &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1154,6 +1199,28 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 		},
 		Subjects: appdbRB.DeepCopy().Subjects,
 		RoleRef:  appdbRB.DeepCopy().RoleRef,
+	}, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating role binding: %w", err)
+	}
+
+	_, err = dst.RbacV1().Roles(namespace).Create(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   metricsForwarderR.Name,
+			Labels: metricsForwarderR.Labels,
+		},
+		Rules: metricsForwarderR.DeepCopy().Rules,
+	}, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return xerrors.Errorf("error creating role: %w", err)
+	}
+	_, err = dst.RbacV1().RoleBindings(namespace).Create(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   metricsForwarderRB.Name,
+			Labels: metricsForwarderRB.Labels,
+		},
+		Subjects: metricsForwarderRB.DeepCopy().Subjects,
+		RoleRef:  metricsForwarderRB.DeepCopy().RoleRef,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return xerrors.Errorf("error creating role binding: %w", err)

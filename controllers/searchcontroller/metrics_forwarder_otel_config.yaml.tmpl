@@ -21,6 +21,24 @@ receivers:
             type: SRV
             refresh_interval: 30s
           metrics_path: /metrics
+  k8s_objects:
+    objects:
+      - name: pods
+        mode: pull
+        interval: {{ .ScrapeInterval }}
+        namespaces:
+          - ${env:MONGOT_NAMESPACE}
+        label_selector: "{{ .MongotPodSelector }}"
+connectors:
+  forward:
+  signal_to_metrics:
+    logs:
+      - name: k8s.container.restarts
+        description: Number of times the mongot container has restarted.
+        conditions:
+          - attributes["mongot.restart_count"] != nil
+        gauge:
+          value: Int(attributes["mongot.restart_count"])
 processors:
   memory_limiter:
     check_interval: 1s
@@ -318,13 +336,37 @@ processors:
       - context: resource
         statements:
         - set(attributes["mongodb.opsmanager.host.name"], attributes["server.address"])
-        - set(attributes["mongodb.opsmanager.host.id"], attributes["server.address"])
-        - replace_pattern(attributes["mongodb.opsmanager.host.id"], "^([^.]+)\\..*$", "{{ .GroupID }}-${env:MONGOT_NAMESPACE}-$$1")
-        - set(attributes["mongodb.opsmanager.host.id"], SHA1(attributes["mongodb.opsmanager.host.id"]))
+        - set(attributes["k8s.pod.name"], attributes["server.address"])
+        - replace_pattern(attributes["k8s.pod.name"], "^([^.]+)\\..*$", "$$1")
         {{ if gt (len .ShardNames) 0 }}
         - set(attributes["mongodb.opsmanager.shard.name"], attributes["server.address"])
         - replace_pattern(attributes["mongodb.opsmanager.shard.name"], "^.+\\.{{ .MongotName }}-search-{{ .ClusterIndex }}-(.+)-svc\\..+$", "$$1")
         {{ end }}
+  # Terminating pods (e.g. StatefulSet scale-down) must not report metrics.
+  filter/drop_terminating_pods:
+    logs:
+      log_record:
+        - body["metadata"]["deletionTimestamp"] != nil
+  transform/extract_mongot_restarts:
+    log_statements:
+      - context: log
+        statements:
+        - set(attributes["k8s.pod.name"], body["metadata"]["name"])
+        {{ if gt (len .ShardNames) 0 }}
+        - set(attributes["mongodb.opsmanager.shard.name"], body["metadata"]["labels"]["shard"])
+        {{ end }}
+        - set(attributes["mongot.restart_count"], SliceToMap(body["status"]["containerStatuses"], ["name"], ["restartCount"])["mongot"]) where body["status"]["containerStatuses"] != nil
+  groupbyattrs/pod:
+    keys:
+      - k8s.pod.name
+      - mongodb.opsmanager.shard.name
+  transform/host_id:
+    metric_statements:
+      - context: resource
+        statements:
+        - set(attributes["mongodb.opsmanager.host.id"], SHA1(Concat(["{{ .GroupID }}", "${env:MONGOT_NAMESPACE}", attributes["k8s.pod.name"]], "-")))
+        - delete_key(attributes, "k8s.pod.name")
+        - delete_key(attributes, "signal_to_metrics.service.instance.id")
   batch:
     send_batch_size: ${env:BATCH_SIZE}
     timeout: ${env:BATCH_TIMEOUT}
@@ -350,7 +392,7 @@ service:
   extensions:
     - basicauth/agent
   pipelines:
-    metrics:
+    metrics/mongot:
       receivers:
         - prometheus
       processors:
@@ -368,8 +410,30 @@ service:
         - metricsgeneration/disk_percent_used
         - transform/source_resource_attrs
         - filter/keep_only_mapped
-        - resource/ops_manager_discovery_attributes
         - transform/compute_identity_labels
+      exporters:
+        - forward
+    logs/mongot_pods:
+      receivers:
+        - k8s_objects
+      processors:
+        - memory_limiter
+        - filter/drop_terminating_pods
+        - transform/extract_mongot_restarts
+        - groupbyattrs/pod
+      exporters:
+        - signal_to_metrics
+    metrics/mongot_restarts:
+      receivers:
+        - signal_to_metrics
+      exporters:
+        - forward
+    metrics/export:
+      receivers:
+        - forward
+      processors:
+        - resource/ops_manager_discovery_attributes
+        - transform/host_id
         - batch
       exporters:
         - otlp_http

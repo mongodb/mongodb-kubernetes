@@ -1,7 +1,9 @@
+import time
+
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from kubetester import try_load
-from kubetester.kubetester import ensure_nested_objects
+from kubetester.kubetester import KubernetesTester, ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
@@ -25,6 +27,7 @@ from tests.common.search.search_resource_names import (
     metrics_forwarder_state_configmap_name,
 )
 from tests.conftest import get_default_operator
+from tests.constants import METRICS_FORWARDER_SA_NAME
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -171,6 +174,44 @@ def test_scaling_updates_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
     mdbs["spec"]["clusters"][0]["replicas"] = 2
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
+
+
+@mark.e2e_search_enterprise_metrics_forwarder_replicaset
+def test_mongot_restart_is_observed_by_forwarder(om: MongoDBOpsManager, mdbs: MongoDBSearch, namespace: str):
+    core_v1 = client.CoreV1Api()
+    deployment = client.AppsV1Api().read_namespaced_deployment(
+        metrics_forwarder_deployment_name(MDB_RESOURCE_NAME), namespace
+    )
+    assert deployment.spec.template.spec.service_account_name == METRICS_FORWARDER_SA_NAME
+
+    pod_name = f"{MDB_RESOURCE_NAME}-search-0-0"
+
+    def mongot_restart_count() -> int:
+        pod = core_v1.read_namespaced_pod(pod_name, namespace)
+        return next(cs.restart_count for cs in pod.status.container_statuses if cs.name == "mongot")
+
+    restarts_before = mongot_restart_count()
+    KubernetesTester.run_command_in_pod_container(pod_name, namespace, ["sh", "-c", "kill -TERM 1"], container="mongot")
+    run_periodically(
+        lambda: mongot_restart_count() > restarts_before,
+        timeout=180,
+        sleep_time=5,
+        msg="mongot container restart",
+    )
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+    # the k8sobjects receiver lists pods once per scrape interval; let two intervals pass before inspecting logs.
+    time.sleep(130)
+    forwarder_pods = core_v1.list_namespaced_pod(
+        namespace, label_selector=f"app={metrics_forwarder_deployment_name(MDB_RESOURCE_NAME)}"
+    ).items
+    assert forwarder_pods
+    for pod in forwarder_pods:
+        logs = core_v1.read_namespaced_pod_log(pod.metadata.name, namespace, container="metrics-forwarder")
+        assert "forbidden" not in logs.lower(), logs
+
+    tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
     tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
 

@@ -160,6 +160,40 @@ func TestDatabaseRoles_GetCreated(t *testing.T) {
 	assertDatabaseRolesExist(t, ctx, clientMap, flags)
 }
 
+func TestCopyDatabaseRoles(t *testing.T) {
+	ctx := context.Background()
+	flags := testFlags(t, false)
+	ns := flags.MemberClusterNamespace
+
+	t.Run("copies the metrics forwarder resources from the source cluster", func(t *testing.T) {
+		src := NewKubeClientContainer(nil, newFakeClientset(ctx, "src", nil), nil)
+		dst := NewKubeClientContainer(nil, newFakeClientset(ctx, "dst", nil), nil)
+		require.NoError(t, createDatabaseRoles(ctx, src, flags))
+
+		require.NoError(t, copyDatabaseRoles(ctx, src, dst, ns))
+
+		_, err := dst.CoreV1().ServiceAccounts(ns).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+		r, err := dst.RbacV1().Roles(ns).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metricsForwarderRoleRules(), r.Rules)
+		_, err = dst.RbacV1().RoleBindings(ns).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+	})
+
+	t.Run("fails when the source cluster lacks the metrics forwarder service account", func(t *testing.T) {
+		src := NewKubeClientContainer(nil, newFakeClientset(ctx, "src", nil), nil)
+		dst := NewKubeClientContainer(nil, newFakeClientset(ctx, "dst", nil), nil)
+		require.NoError(t, createDatabaseRoles(ctx, src, flags))
+		require.NoError(t, src.CoreV1().ServiceAccounts(ns).Delete(ctx, MetricsForwarderName, metav1.DeleteOptions{}))
+
+		err := copyDatabaseRoles(ctx, src, dst, ns)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), MetricsForwarderName)
+	})
+}
+
 func TestRoles_GetsCreated_WhenTheyDoesNotExit(t *testing.T) {
 	ctx := context.Background()
 	flags := testFlags(t, false)
@@ -1007,6 +1041,19 @@ func assertDatabaseRolesExist(t *testing.T, ctx context.Context, clientMap map[s
 			Kind: "Role",
 			Name: AppdbRole,
 		}, rb.RoleRef)
+
+		sa, err = client.CoreV1().ServiceAccounts(flags.MemberClusterNamespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, multiClusterLabels(), sa.Labels)
+
+		r, err = client.RbacV1().Roles(flags.MemberClusterNamespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metricsForwarderRoleRules(), r.Rules)
+
+		rb, err = client.RbacV1().RoleBindings(flags.MemberClusterNamespace).Get(ctx, MetricsForwarderName, metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, []rbacv1.Subject{{Kind: "ServiceAccount", Name: MetricsForwarderName}}, rb.Subjects)
+		assert.Equal(t, rbacv1.RoleRef{Kind: "Role", Name: MetricsForwarderName}, rb.RoleRef)
 	}
 }
 
