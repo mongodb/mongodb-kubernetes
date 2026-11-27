@@ -70,13 +70,10 @@ spec:
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
+          {{- with .Values.operator.resources }}
           resources:
-            limits:
-              cpu: {{ .Values.operator.resources.limits.cpu }}
-              memory: {{ .Values.operator.resources.limits.memory }}
-            requests:
-              cpu: {{ .Values.operator.resources.requests.cpu }}
-              memory: {{ .Values.operator.resources.requests.memory }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if and (not .Values.managedSecurityContext) .Values.operator.securityContext }}
           securityContext:
             {{- toYaml .Values.operator.securityContext | nindent 12 }}
