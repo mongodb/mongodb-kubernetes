@@ -114,6 +114,9 @@ def get_default_architecture() -> str:
 
 
 def configured_proxy_image(config: dict[str, str]) -> str:
+    # The operator installation config can carry the full reference, which keeps a digest or a registry port.
+    if image := config.get("mongodbProxy.image"):
+        return image
     return (
         f'{config["registry.mongodbProxy"]}/{config["mongodbProxy.name"]}:'
         f'{config["mongodbProxy.version"]}{config.get("build", "")}'

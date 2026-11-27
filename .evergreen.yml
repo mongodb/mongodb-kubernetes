@@ -2211,6 +2211,8 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
       - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
       - name: publish_helm_chart
@@ -2272,6 +2274,8 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
       - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
       - name: publish_helm_chart
@@ -2329,6 +2333,8 @@ buildvariants:
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_mongodb_proxy_image
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
