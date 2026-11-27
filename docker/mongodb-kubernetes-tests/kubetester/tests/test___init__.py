@@ -182,8 +182,9 @@ class TestStaticGAArchitecture(unittest.TestCase):
     def test_static_to_static_ga_is_not_a_variant_default_pair(self):
         """The variant default never produces static to static-ga, so that migration names its target.
 
-        The existing migration tests cover non-static to static-ga and static/static-ga to non-static. The
-        static to static-ga pair needs an explicit target, which get_static_ga_migration_target() supplies.
+        The migration tests pin their start to legacy static and then walk static to static-ga to non-static.
+        The first hop needs an explicit target, which get_static_ga_migration_target() supplies. The second
+        hop is the variant default for legacy static, so it needs no helper.
         """
         self.assertEqual(get_static_ga_migration_target(), "static-ga")
         with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static"}):
