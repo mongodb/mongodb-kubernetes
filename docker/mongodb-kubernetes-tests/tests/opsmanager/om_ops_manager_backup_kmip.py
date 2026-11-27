@@ -182,14 +182,17 @@ class TestBackupForMongodb:
         self, mdb_latest: MongoDB, mdb_latest_project: OMTester, mdb_latest_test_collection
     ):
         mdb_latest_project.wait_agents_ready()
-        config = mdb_latest_project.api_get_automation_config()
-        mongods = [process for process in config["processes"] if process["processType"] == "mongod"]
-        assert len(mongods) == mdb_latest["spec"]["members"]
-        names = {process["name"] for process in mongods}
         rotation_request = datetime.now(timezone.utc).replace(microsecond=0)
-        for process in mongods:
-            process["lastKmipMasterKeyRotation"] = rotation_request.isoformat().replace("+00:00", "Z")
-        mdb_latest_project.api_put_automation_config(config)
+
+        def mutate(config: dict) -> None:
+            mongods = [process for process in config["processes"] if process["processType"] == "mongod"]
+            assert len(mongods) == mdb_latest["spec"]["members"]
+            for process in mongods:
+                process["lastKmipMasterKeyRotation"] = rotation_request.isoformat().replace("+00:00", "Z")
+
+        config = mdb_latest_project.update_automation_config(mutate)
+        mongods = [process for process in config["processes"] if process["processType"] == "mongod"]
+        names = {process["name"] for process in mongods}
 
         # The status API can still report the goal from before the PUT.
         def rotation_goal_reached():

@@ -50,11 +50,6 @@ def seed_user_in_ac(
     sha256_creds: Optional[dict] = None,
     sha1_creds: Optional[dict] = None,
 ) -> None:
-    ac = om_tester.api_get_automation_config()
-    ac["auth"].setdefault("usersWanted", [])
-    ac["auth"]["usersWanted"] = [
-        u for u in ac["auth"]["usersWanted"] if not (u.get("user") == username and u.get("db") == db)
-    ]
     entry = {"user": username, "db": db, "roles": roles}
     if mechanisms is not None:
         entry["mechanisms"] = mechanisms
@@ -62,8 +57,15 @@ def seed_user_in_ac(
         entry["scramSha256Creds"] = sha256_creds
     if sha1_creds:
         entry["scramSha1Creds"] = sha1_creds
-    ac["auth"]["usersWanted"].append(entry)
-    om_tester.api_put_automation_config(ac)
+
+    def mutate(ac: dict) -> None:
+        ac["auth"].setdefault("usersWanted", [])
+        ac["auth"]["usersWanted"] = [
+            u for u in ac["auth"]["usersWanted"] if not (u.get("user") == username and u.get("db") == db)
+        ]
+        ac["auth"]["usersWanted"].append(entry)
+
+    om_tester.update_automation_config(mutate)
 
 
 def build_scram_user_resource(namespace: str, username: str, password: str, secret_name: str, mdb_resource_name: str):

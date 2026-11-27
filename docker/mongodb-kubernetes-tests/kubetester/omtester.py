@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import re
@@ -9,7 +10,7 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import pymongo
 import pytest
@@ -914,6 +915,37 @@ class OMTester(object):
 
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
+    def update_automation_config(self, mutate: Callable[[dict], None]) -> dict:
+        """GET, mutate and PUT the automation config, retrying when another writer publishes first.
+
+        Ops Manager treats the body `version` as a write precondition, so a PUT that lost a race
+        gets 409 AUTOMATION_CONFIG_CONCURRENT_MODIFICATION. Each attempt re-reads the config and
+        re-applies `mutate`, because replaying the stale body can never succeed. A 401 means the
+        operator re-asserted EXTERNALLY_MANAGED_LOCK, so the feature controls are cleared before
+        the retry. Skips the PUT when `mutate` changes nothing. Returns the config that was accepted.
+        """
+        # The conflict clears on the next publish. Five attempts span 1+2+3+4 seconds of backoff.
+        attempts = 5
+        for attempt in range(1, attempts + 1):
+            config = self.api_get_automation_config()
+            original = json.dumps(config, sort_keys=True)
+            mutate(config)
+            if json.dumps(config, sort_keys=True) == original:
+                logger.info("automation config already up to date, skipping the PUT")
+                return config
+            try:
+                self.api_put_automation_config(config)
+                return config
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                if status not in (401, 409) or attempt == attempts:
+                    raise
+                if status == 401:
+                    self.clear_feature_controls()
+                logger.warning(f"automationConfig PUT got {status}; retry {attempt}/{attempts - 1}")
+                time.sleep(attempt)
+        raise AssertionError("unreachable")
 
     def api_read_license_state(self) -> Dict:
         return self.om_request("get", "/admin/licenses").json()

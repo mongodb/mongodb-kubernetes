@@ -526,21 +526,20 @@ def remove_k8s_member_from_automation_config(
     while the StatefulSets are still running, so the members being removed stay available and the
     replica set never loses its majority.
     """
-    ac = om_tester.api_get_automation_config()
     process_name = k8s_process_name(namespace, resource_name, index)
 
-    matching = [p for p in ac.get("processes", []) if p["name"] == process_name]
-    assert len(matching) == 1, (
-        f"expected exactly one process named {process_name} in the automation config, found "
-        f"{len(matching)}. processes: {[p['name'] for p in ac.get('processes', [])]}"
-    )
-    hostname = matching[0]["hostname"]
+    def mutate(ac: dict) -> None:
+        matching = [p for p in ac.get("processes", []) if p["name"] == process_name]
+        assert len(matching) == 1, (
+            f"expected exactly one process named {process_name} in the automation config, found "
+            f"{len(matching)}. processes: {[p['name'] for p in ac.get('processes', [])]}"
+        )
+        hostname = matching[0]["hostname"]
 
-    ac["processes"] = [p for p in ac.get("processes", []) if p["name"] != process_name]
-    for replica_set in ac.get("replicaSets", []):
-        replica_set["members"] = [m for m in replica_set.get("members", []) if m["host"] != process_name]
-    ac["monitoringVersions"] = [mv for mv in ac.get("monitoringVersions", []) if mv.get("hostname") != hostname]
-    ac["backupVersions"] = [bv for bv in ac.get("backupVersions", []) if bv.get("hostname") != hostname]
+        ac["processes"] = [p for p in ac.get("processes", []) if p["name"] != process_name]
+        for replica_set in ac.get("replicaSets", []):
+            replica_set["members"] = [m for m in replica_set.get("members", []) if m["host"] != process_name]
+        ac["monitoringVersions"] = [mv for mv in ac.get("monitoringVersions", []) if mv.get("hostname") != hostname]
+        ac["backupVersions"] = [bv for bv in ac.get("backupVersions", []) if bv.get("hostname") != hostname]
 
-    om_tester.api_put_automation_config(ac)
-    return ac
+    return om_tester.update_automation_config(mutate)

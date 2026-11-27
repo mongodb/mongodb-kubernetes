@@ -966,13 +966,6 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
-    def put_automation_config(config):
-        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id())
-        response = KubernetesTester.om_request("put", url, config)
-
-        return response
-
-    @staticmethod
     def put_monitoring_config(config, group_id=None):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
