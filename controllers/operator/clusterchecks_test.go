@@ -15,10 +15,12 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type clusterChecks struct {
@@ -278,9 +280,23 @@ func (c *clusterChecks) checkMMSCAConfigMap(ctx context.Context, configMapName s
 	assert.Contains(c.t, cm.Data, util.CaCertMMS, "clusterName: %s", c.clusterName)
 }
 
-func (c *clusterChecks) checkHostnameOverrideConfigMap(ctx context.Context, configMapName string, expectedPodNameToHostnameMap map[string]string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Equal(c.t, expectedPodNameToHostnameMap, cm.Data)
+// checkAgentHostnames expands each pod's $(POD_NAME)-based agent hostname and compares it with the
+// hostname the operator registers for that pod.
+func (c *clusterChecks) checkAgentHostnames(ctx context.Context, expectedPodNameToHostnameMap map[string]string) {
+	stsList := appsv1.StatefulSetList{}
+	require.NoError(c.t, c.kubeClient.List(ctx, &stsList, client.InNamespace(c.namespace)), "clusterName: %s", c.clusterName)
+	checked := 0
+	for _, sts := range stsList.Items {
+		agent := construct.AgentContainer(sts)
+		require.NotNil(c.t, agent, "clusterName: %s, sts: %s", c.clusterName, sts.Name)
+		hostname := env.ToMap(agent.Env...)["MDB_AGENT_HOSTNAME_OVERRIDE"]
+		for i := range int(*sts.Spec.Replicas) {
+			podName := fmt.Sprintf("%s-%d", sts.Name, i)
+			expected, ok := expectedPodNameToHostnameMap[podName]
+			require.True(c.t, ok, "clusterName: %s, no expected hostname for pod %s", c.clusterName, podName)
+			assert.Equal(c.t, expected, strings.ReplaceAll(hostname, "$(POD_NAME)", podName), "clusterName: %s", c.clusterName)
+			checked++
+		}
+	}
+	assert.Positive(c.t, checked, "clusterName: %s", c.clusterName)
 }

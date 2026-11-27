@@ -726,7 +726,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalDomain(t *testing.
 			memberClusterChecks.checkInternalServices(ctx, shardStsName)
 			memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStsName, shardMembers)
 			memberClusterChecks.checkServiceAnnotations(ctx, shardStsName, shardMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleExternalClusterDomains.ShardsExternalDomain)
-			memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+			memberClusterChecks.checkAgentHostnames(ctx, expectedHostnameOverrideMap)
 		}
 	}
 }
@@ -871,7 +871,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndOnlyTopLe
 			memberClusterChecks.checkInternalServices(ctx, shardStsName)
 			memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStsName, shardMembers)
 		}
-		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+		memberClusterChecks.checkAgentHostnames(ctx, expectedHostnameOverrideMap)
 	}
 }
 
@@ -940,7 +940,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndNoExterna
 			memberClusterChecks.checkExternalServicesDontExist(ctx, shardStsName, shardMembers)
 			memberClusterChecks.checkPerPodServices(ctx, shardStsName, shardMembers)
 		}
-		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+		memberClusterChecks.checkAgentHostnames(ctx, expectedHostnameOverrideMap)
 	}
 }
 
@@ -1008,7 +1008,7 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 		memberClusterChecks.checkPerPodServices(ctx, mongosStsName, memberClusters.MongosDistribution[clusterSpecItem.ClusterName])
 
 		memberClusterChecks.checkAgentAPIKeySecret(ctx, om.TestGroupID)
-		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+		memberClusterChecks.checkAgentHostnames(ctx, expectedHostnameOverrideMap)
 	}
 }
 
@@ -1560,7 +1560,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	for _, clusterName := range memberClusterNames {
 		memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName])
-		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+		memberClusterChecks.checkAgentHostnames(ctx, expectedHostnameOverrideMap)
 	}
 }
 

@@ -277,13 +277,30 @@ func (s AgentSettingsSource) ReadsMountedAPIKey(baseURL string) bool {
 	return resolveAgentSettings(base, s)["mmsApiKeyExec"] == agentAPIKeyExecCommand()
 }
 
-// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
-// because Kubernetes expands references using the entries that precede them.
+// setAgentHostnameEnv passes the advertised hostname to the launcher. A customer overrideLocalHost
+// wins over the hostname the operator generated from the pod name.
 func setAgentHostnameEnv(agent *corev1.Container, opts DatabaseStatefulSetOptions) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if hostname, ok := opts.AgentSettingsSource().startupParameters()["overrideLocalHost"]; ok {
-		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
+	if customer, ok := opts.AgentSettingsSource().startupParameters()["overrideLocalHost"]; ok {
+		appendHostnameEnv(agent, customer)
+	} else if opts.AgentHostnameOverride != "" {
+		ensurePodNameEnv(agent)
+		appendHostnameEnv(agent, opts.AgentHostnameOverride)
 	}
+}
+
+// ensurePodNameEnv adds POD_NAME unless the pod template already defines it, so the generated
+// hostname can reference it.
+func ensurePodNameEnv(agent *corev1.Container) {
+	if _, defined := env.ToMap(agent.Env...)[PodNameEnv]; !defined {
+		agent.Env = append(agent.Env, PodNameEnvVar())
+	}
+}
+
+// appendHostnameEnv appends last because Kubernetes expands references using the entries that
+// precede them.
+func appendHostnameEnv(agent *corev1.Container, hostname string) {
+	agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 }
 
 // upsertAgentAPIKeyVolume replaces the projected API-key volume in place and keeps the existing
@@ -325,4 +342,28 @@ func replaceVolume(template *corev1.PodTemplateSpec, volume corev1.Volume) {
 		}
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, volume)
+}
+
+// PodNameEnv holds the pod name from the Downward API so AgentHostnameOverride can reference it.
+const PodNameEnv = "POD_NAME"
+
+// AgentHostnameOverride returns the hostname the agent advertises, or "" to keep the pod's own hostname.
+// It must match the hostnames the operator registers in the automation config (see pkg/dns).
+func AgentHostnameOverride(externalDomain *string, multiCluster bool, namespace, clusterDomain string) string {
+	if externalDomain != nil && *externalDomain != "" {
+		return fmt.Sprintf("$(%s).%s", PodNameEnv, *externalDomain)
+	}
+	if !multiCluster {
+		return ""
+	}
+	domain := "cluster.local"
+	if clusterDomain != "" {
+		domain = strings.TrimPrefix(clusterDomain, ".")
+	}
+	return fmt.Sprintf("$(%s)-svc.%s.svc.%s", PodNameEnv, namespace, domain)
+}
+
+// PodNameEnvVar exposes the pod name through the Downward API.
+func PodNameEnvVar() corev1.EnvVar {
+	return corev1.EnvVar{Name: PodNameEnv, ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}
 }
