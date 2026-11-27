@@ -1,0 +1,13 @@
+{
+    "id": "aws-cli",
+    "version": "1.0.0",
+    "name": "AWS CLI (quiet)",
+    "description": "Installs the AWS CLI v2. Local drop-in for ghcr.io/devcontainers/features/aws-cli:1 that installs quietly (unzip -q) so the container build log isn't flooded with the CLI bundle's example files.",
+    "options": {
+        "version": {
+            "type": "string",
+            "default": "latest",
+            "description": "AWS CLI v2 version to install ('latest' or a concrete version like 2.15.0)."
+        }
+    }
+}

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# wt-ctl: a git worktree per branch with a prefix of its own for its kind clusters, namespace and devcontainer.
+# Usage: docs/dev/devcontainer-worktrees.md and `scripts/dev/wt-ctl --help`.
+#
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# On the host, keep scratch files and the caches of the tools wt-ctl runs inside the checkout.
+# In the devcontainer they are volumes.
+if [[ ! -f /.dockerenv ]]; then
+    wt_cache="$(cd "${script_dir}/../.." && pwd)/.generated/cache"
+    mkdir -p "${wt_cache}/scratch" "${wt_cache}/xdg" "${wt_cache}/kube" "${wt_cache}/uv"
+    export TMPDIR="${wt_cache}/scratch"
+    export XDG_CACHE_HOME="${wt_cache}/xdg"
+    export KUBECACHEDIR="${wt_cache}/kube"
+    export UV_CACHE_DIR="${wt_cache}/uv"
+fi
+
+# Load the checkout's env (venv, bin/ on PATH). A fresh checkout has none yet and `create` builds it, so run the main
+# checkout's wt-ctl then, on the directory we are in. devenv is sourced, not set_env_context.sh: that one turns on
+# `set -e` and would stop this script.
+set +u
+# shellcheck source=devenv
+if ! source "${script_dir}/devenv" 2>/dev/null; then
+    main_checkout="$(cd "$(git -C "${script_dir}" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
+    if [[ "${main_checkout}/scripts/dev" != "${script_dir}" && -x "${main_checkout}/scripts/dev/wt-ctl" ]]; then
+        echo "[wt-ctl] no generated context env here; running the one of ${main_checkout}" >&2
+        exec "${main_checkout}/scripts/dev/wt-ctl" "$@"
+    fi
+    echo "[wt-ctl] no generated context env in $(pwd); running without it" >&2
+fi
+set -u
+
+export PYTHONPATH="${script_dir}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m wt_ctl "$@"
