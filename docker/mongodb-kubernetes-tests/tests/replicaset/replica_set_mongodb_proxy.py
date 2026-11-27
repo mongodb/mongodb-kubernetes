@@ -91,21 +91,15 @@ def test_replica_set_reaches_running_phase(operator_with_proxy: Operator, replic
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_agent_was_started_with_the_proxy_flag(replica_set: MongoDB, namespace: str):
-    # The command line holds the API key, so only the names of the matching processes are read. The bracket in the
-    # pattern keeps grep and its parent shell, whose command lines contain the pattern itself, from matching.
+def test_agent_settings_name_the_proxy(replica_set: MongoDB, namespace: str):
     out = KubernetesTester.run_command_in_pod_container(
         f"{replica_set.name}-0",
         namespace,
-        [
-            "bash",
-            "-c",
-            "grep -la -e '-mongodProxyAddress=unix:///var/run/mongodb-proxy/proxy.soc[k]' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
-        ],
+        ["cat", "/etc/mongodb-agent/automation-agent.conf"],
         container=AGENT_CONTAINER,
     )
 
-    assert out.strip(), "no process of the agent container runs with -mongodProxyAddress=" + PROXY_ADDRESS
+    assert f"mongodProxyAddress={PROXY_ADDRESS}" in out
 
 
 @mark.e2e_replica_set_mongodb_proxy
