@@ -3,7 +3,7 @@ import logging
 from typing import Any, Optional
 
 import kubernetes
-from kubetester.kubetester import KubernetesTester, is_default_architecture_static
+from kubetester.kubetester import KubernetesTester
 
 
 def parse_json_pod_logs(pod_logs: str) -> list[dict[str, Any]]:
@@ -76,15 +76,48 @@ def assert_log_types_in_structured_json_pod_log(
     Checks pod logs if all expected_log_types are present in structured json logs.
     It fails when there are any unexpected log types in logs.
     """
+    expected = set(expected_log_types or set())
+    architecture = pod_static_architecture(namespace, pod_name, api_client)
 
-    if not is_default_architecture_static():
+    if architecture == "":
         container_name = "mongodb-enterprise-database"
+    elif architecture == "static-ga":
+        # mongod runs in the database container under the proxy, which copies its log there. The Agent container
+        # runs no mongod, so the mongodb type is not there.
+        expected.discard("mongodb")
+        assert_mongodb_log_in_database_container(namespace, pod_name, api_client)
 
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
 
-    unwanted_log_types = set(pod_logs.keys()) - (expected_log_types or set())
-    missing_log_types = (expected_log_types or set()) - set(pod_logs.keys())
+    unwanted_log_types = set(pod_logs.keys()) - expected
+    missing_log_types = expected - set(pod_logs.keys())
     assert len(unwanted_log_types) == 0, f"pod {namespace}/{pod_name} contains unwanted log types: {unwanted_log_types}"
     assert (
         len(missing_log_types) == 0
     ), f"pod {namespace}/{pod_name} doesn't contain some log types: {missing_log_types}"
+
+
+def pod_static_architecture(
+    namespace: str,
+    pod_name: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> str:
+    """The MDB_STATIC_CONTAINERS_ARCHITECTURE the operator rendered into the Agent container."""
+    pod = kubernetes.client.CoreV1Api(api_client=api_client).read_namespaced_pod(pod_name, namespace)
+    for container in pod.spec.containers:
+        if container.name != "mongodb-agent":
+            continue
+        for variable in container.env or []:
+            if variable.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE":
+                return variable.value or ""
+    return ""
+
+
+def assert_mongodb_log_in_database_container(
+    namespace: str,
+    pod_name: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+):
+    logs = KubernetesTester.read_pod_logs(namespace, pod_name, "mongodb-enterprise-database", api_client=api_client)
+    mongodb_lines = [line for line in logs.splitlines() if line.strip() and '"component":"proxy"' not in line]
+    assert mongodb_lines, f"pod {namespace}/{pod_name} has no mongod log in the database container"

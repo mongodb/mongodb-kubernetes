@@ -52,6 +52,9 @@ var (
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Services.
 // It returns any errors coming from Kubernetes API.
 func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := construct.ValidateStaticGADatabaseKeyfileUsers(mdb.GetAnnotations(), opts.DefaultArchitecture, opts.PodSpec); err != nil {
+		return nil, err
+	}
 	if err := ReconcileDatabaseAgentSettings(ctx, client, secretClient, sts, opts); err != nil {
 		return nil, err
 	}

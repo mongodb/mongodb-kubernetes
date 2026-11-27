@@ -25,14 +25,22 @@ export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.
 # -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
 tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
-source /opt/scripts/agent-launcher-lib.sh
+# The lib is always a sibling of this launcher. The init-database image keeps both files in /scripts/, the static
+# and static-ga pods mount that image at /mnt/init-database, and the non-static init container copies both files
+# into /opt/scripts. Resolving from the launcher's own path therefore works in every architecture. A fixed path
+# would not: static-ga has no /opt/scripts.
+source "$(dirname "$0")/agent-launcher-lib.sh"
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
 tail -F -n0 "${MDB_LOG_FILE_MONITORING_AGENT}" 2> /dev/null | json_log 'monitoring-agent' &
 tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent' &
-tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
+# The proxy copies the mongod log to the database container's stdout in static-ga. That container runs mongod, so
+# the Agent container does not tail the file and the log is copied once.
+if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" != "static-ga" ]; then
+  tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
+fi
 tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-audit' &
 
 # file required by Automation Agents of authentication is enabled.
@@ -128,6 +136,10 @@ rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   echo "Skipping creating symlinks because this is not Static Containers Architecture"
+elif [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
+  # This container has no mongodb_marker process. The block below waits MAX_WAIT seconds for it and exits 1.
+  # The proxy owns mongod, and the agent uses the tools from its own image, so the symlinks are not needed.
+  echo "Skipping creating symlinks because static-ga uses the tools from the agent image"
 else
   WAIT_TIME=5
   MAX_WAIT=300
@@ -178,4 +190,11 @@ script_log "Launched automation agent, pid=${agentPid}"
 
 trap cleanup SIGTERM
 
-wait
+# Wait for the agent alone. A bare `wait` also waits for the log tails, which run until the container stops, so
+# the launcher would stay alive after the agent exits. The status of the agent becomes the status of PID 1.
+# Static and non-static keep the existing wait, so this change is limited to static-ga.
+if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
+  wait "${agentPid}"
+else
+  wait
+fi

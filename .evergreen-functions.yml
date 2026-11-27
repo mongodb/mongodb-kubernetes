@@ -26,6 +26,7 @@ variables:
       - github_pr_head_branch
       - image_name
       - is_patch
+      - mdb_mongodb_proxy_image
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_region
       - mms_eng_test_aws_secret

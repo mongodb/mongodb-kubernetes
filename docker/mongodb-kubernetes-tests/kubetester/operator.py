@@ -25,7 +25,6 @@ OPERATOR_CRDS = (
     "opsmanagers.mongodb.com",
 )
 
-
 logger = test_logger.get_test_logger(__name__)
 
 

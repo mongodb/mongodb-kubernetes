@@ -141,7 +141,7 @@ func TestDatabaseStatefulSetManagedCertificateTargetTLSMounts(t *testing.T) {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
-	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest")
+	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest", []corev1.VolumeMount{databaseScriptsVolumeMount(false)})
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
@@ -312,6 +312,13 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			variables: map[string]string{"MDB_STATIC_CONTAINERS_ARCHITECTURE": "true", DownloadBaseEnv: "/custom/download"},
 			want:      mdbv1.StartupParameters{"operatorMode": "true", "binariesFixedPath": "/custom/download/mongod/bin"},
 			absent:    []string{"useLocalMongoDbTools"},
+		},
+		{
+			name:       "static-ga uses agent image tools",
+			variables:  map[string]string{StaticContainersArchitectureEnv: "static-ga"},
+			parameters: mdbv1.StartupParameters{"mongodbToolsPath": "/other/tools"},
+			want:       mdbv1.StartupParameters{"operatorMode": "true", "mongodbToolsPath": "/tools", "mongodProxyAddress": MongodbProxyAddress},
+			absent:     []string{"binariesFixedPath", "useLocalMongoDbTools"},
 		},
 		{
 			name:       "customer settings win including unknown keys",
