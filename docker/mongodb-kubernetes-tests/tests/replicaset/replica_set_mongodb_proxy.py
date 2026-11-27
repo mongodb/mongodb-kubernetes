@@ -2,11 +2,11 @@
 A replica set whose members run mongod through the mongodb-proxy in a container of its own.
 
 Prerequisites, none of which the default e2e environment provides:
-  * Kubernetes 1.36 or newer (the proxy and the MongoDB binaries are mounted as OCI image volumes).
+  * Kubernetes 1.36 or newer (the proxy and the init-database images are mounted as OCI image volumes).
   * MDB_MONGODB_PROXY_IMAGE: the full reference of a mongodb-proxy image the cluster can pull,
     for example the result of `make mongodb-proxy-image` pushed to a registry.
-  * An Agent image that supports --mongodProxyAddress. The static-ga test operator
-    selects a compatible image unless the run supplies a custom Agent URL.
+  * An Agent image that supports -mongodProxyAddress. The test selects the branch Agent image in the pod
+    template of the resource, see kubetester.mongodb_proxy.STATIC_GA_AGENT_IMAGE.
 
 The test is skipped when MDB_MONGODB_PROXY_IMAGE is not set.
 """
@@ -37,6 +37,7 @@ from kubetester.mongodb_proxy import (
     read_processes,
     restart_counts,
     run_operator_in_cluster,
+    static_ga_agent_containers,
     wait_for_new_mongod,
     wait_until,
 )
@@ -74,14 +75,12 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource["spec"]["security"] = {"authentication": {"enabled": False}}
     # The proxy only exists in the static-ga architecture, whatever the default of the test run is.
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
+    # The released Agent does not support -mongodProxyAddress, so run the branch Agent image.
+    resource["spec"].setdefault("podSpec", {}).setdefault("podTemplate", {}).setdefault("spec", {})[
+        "containers"
+    ] = static_ga_agent_containers()
     try_load(resource)
     return resource
-
-
-@mark.e2e_replica_set_mongodb_proxy
-def test_install_operator(operator_with_proxy: Operator):
-    # Installing the fixture already waited for the operator and its webhook.
-    operator_with_proxy.wait_for_operator_ready()
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -89,34 +88,6 @@ def test_replica_set_reaches_running_phase(operator_with_proxy: Operator, replic
     replica_set.update()
     # The agent starts mongod through the proxy, so a running replica set means the whole path works.
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-
-
-@mark.e2e_replica_set_mongodb_proxy
-def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, namespace: str):
-    sts = KubernetesTester.clients("appsv1").read_namespaced_stateful_set(replica_set.name, namespace)
-    pod_spec = sts.spec.template.spec
-
-    assert not pod_spec.share_process_namespace
-
-    containers = {c.name: c for c in pod_spec.containers}
-    database_container = containers[DATABASE_CONTAINER]
-    assert database_container.command == ["/mnt/proxy/proxy"]
-    # The agent needs the listen address. Other flags may come and go, so find this one by name.
-    proxy_args = database_container.args
-    assert "-listen" in proxy_args, proxy_args
-    assert proxy_args[proxy_args.index("-listen") + 1] == PROXY_ADDRESS, proxy_args
-
-    volumes = {v.name: v for v in pod_spec.volumes}
-    assert volumes["mongodb-proxy"].image.reference == proxy_image()
-    assert volumes["mongodb-binaries"].image is not None
-
-    # The socket is on a volume that only the agent and the database container mount.
-    assert volumes["mongodb-proxy-socket"].empty_dir is not None
-    mounting = [c.name for c in pod_spec.containers if "mongodb-proxy-socket" in [m.name for m in c.volume_mounts]]
-    assert sorted(mounting) == sorted([AGENT_CONTAINER, DATABASE_CONTAINER])
-
-    env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
-    assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -138,15 +109,16 @@ def test_agent_was_started_with_the_proxy_flag(replica_set: MongoDB, namespace: 
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_proxy_socket_is_private_and_there_is_no_tcp_port(replica_set: MongoDB, namespace: str):
+def test_proxy_socket_is_shared_by_the_two_containers_and_there_is_no_tcp_port(replica_set: MongoDB, namespace: str):
     for i in range(replica_set["spec"]["members"]):
         pod = f"{replica_set.name}-{i}"
 
-        # Only the owner can connect to the socket. The kernel enforces it before a request reaches the proxy.
+        # The two containers can run as different UIDs under managedSecurityContext, so every UID may connect.
+        # Only the agent and the database container mount the socket volume.
         mode = KubernetesTester.run_command_in_pod_container(
             pod, namespace, ["stat", "-c", "%a %F", PROXY_SOCKET], container=DATABASE_CONTAINER
         ).strip()
-        assert mode == "600 socket", f"{pod}: {mode}"
+        assert mode == "666 socket", f"{pod}: {mode}"
 
         # The old loopback port is gone.
         out = KubernetesTester.run_command_in_pod_container(

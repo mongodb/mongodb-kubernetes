@@ -7,11 +7,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // Static architecture mounts the init-database image read-only as an OCI image volume, so the agent runs the launcher
-// and probes straight from the image instead of reaching into a holder container through /proc/<pid>/root.
+// and probes straight from the image.
 const (
 	initDatabaseVolumeName = "mongodb-init-database"
 	initDatabaseMountPath  = "/mnt/init-database"
@@ -21,29 +20,20 @@ const (
 	staticDatabaseReadinessProbeCmd = initDatabaseMountPath + "/probes/readinessprobe"
 )
 
-// The launcher sources its lib from /opt/scripts. Image volumes only support directory subPaths, so the lib is linked
-// there instead of mounted, which keeps every init-database image version working. Clusters without image volume
-// support silently drop the volume, so fail with a message that names the cause.
+// staticAgentLauncherCommand runs the launcher from the init-database image. The launcher sources its lib from the
+// same directory, so nothing is copied or linked first. The check fails with the cause when the cluster dropped the
+// image volume, instead of exec failing on a missing file.
 var staticAgentLauncherCommand = []string{
 	"/bin/bash", "-c",
-	initDatabaseImageVolumeCheck(staticAgentLauncherPath) +
-		"ln -sf " + initDatabaseMountPath + "/scripts/agent-launcher-lib.sh " + PvcMountPathScripts + "/agent-launcher-lib.sh && exec " + staticAgentLauncherPath,
+	initDatabaseImageVolumeCheck(staticAgentLauncherPath) + "exec " + staticAgentLauncherPath,
 }
 
 func initDatabaseImageVolumeCheck(requiredFile string) string {
 	return "[ -f " + requiredFile + " ] || { echo \"ERROR: " + initDatabaseMountPath + " is empty. The static architecture needs a Kubernetes cluster with image volume support.\" >&2; exit 1; }; "
 }
 
-func initDatabaseImageVolume(initDatabaseImage string) corev1.Volume {
-	return corev1.Volume{
-		Name: initDatabaseVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			Image: &corev1.ImageVolumeSource{
-				Reference:  initDatabaseImage,
-				PullPolicy: corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv)), // nolint:forbidigo
-			},
-		},
-	}
+func initDatabaseImageVolume(initDatabaseImage string, pullPolicy corev1.PullPolicy) corev1.Volume {
+	return imageVolume(initDatabaseVolumeName, initDatabaseImage, pullPolicy)
 }
 
 func initDatabaseImageVolumeMount() corev1.VolumeMount {

@@ -4,13 +4,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
-// In this mode mongod/mongos run in the `mongod` container as children of the mongodb-proxy, and the agent in
-// the `mongodb-agent` container drives them over HTTP on a Unix socket (see the agent flag -mongodProxyAddress).
-// The two containers no longer share a process namespace.
+// In static-ga, mongod/mongos run in the `mongod` container as children of the mongodb-proxy, and the agent in
+// the `mongodb-agent` container drives them over HTTP on a Unix socket (see the agent setting mongodProxyAddress).
 const (
-	// MongodbProxyAddress is a mode-0600 Unix socket mounted in the Agent and database containers by default.
+	// MongodbProxyAddress is the Unix socket the agent uses to reach the proxy. The socket is created mode 0666
+	// because a Pod under managedSecurityContext can run the two containers as different UIDs with no shared
+	// group. The socket volume is mounted only in the Agent and database containers.
 	// Authors who can override the Pod template are trusted to control the database process.
 	MongodbProxyAddress = "unix://" + mongodbProxySocketPath
 
@@ -23,44 +26,41 @@ const (
 	mongodbProxyMountPath  = "/mnt/proxy"
 	mongodbProxyBinaryPath = mongodbProxyMountPath + "/proxy"
 
-	// The official MongoDB image is also mounted into the agent container. There is no shared process
-	// namespace to reach the binaries through /proc/<pid>/root any more, and the agent still needs them to
-	// find out which versions are installed and for the database tools.
-	mongodbBinariesVolumeName = "mongodb-binaries"
-	mongodbBinariesMountPath  = "/mnt/mongodb"
-
-	// The init-database image is mounted into the agent container as well. Its scripts and probes used to be
-	// reached through /proc/<pid>/root of the utilities container, which needs a shared process namespace.
-	mongodbInitDatabaseVolumeName = "mongodb-init-database"
-	mongodbInitDatabaseMountPath  = "/mnt/init-database"
-
-	// The agent runs the launcher and the probes from the mounted init-database image.
-	staticGAAgentLauncherPath  = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
-	staticGAProbePath          = mongodbInitDatabaseMountPath + "/probes/probe.sh"
-	staticGAReadinessProbePath = mongodbInitDatabaseMountPath + "/probes/readinessprobe"
-
-	// Environment variables of the agent container, read by agent-launcher.sh and by the scripts of the agent
-	// image (setup-agent-files.sh and the probes).
+	// mongodbProxyAddressEnv is set on the AppDB agent container for the proxy address.
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
-	mongodRootEnv          = "MDB_MONGOD_ROOT"
-	initRootEnv            = "MDB_INIT_ROOT"
 
 	// The agent image carries the database tools in /tools. The proxy starts mongod, so the agent
 	// needs no mongod path, only the tools path.
 	staticGAAgentToolsPath = "/tools"
 	mongodbToolsPathFlag   = "mongodbToolsPath"
+
+	// mongodProxyAddressFlag is the native settings key for the proxy socket. The database Agent reads it from
+	// the generated automation-agent.conf, so agent-launcher.sh does not pass it on the command line.
+	mongodProxyAddressFlag = "mongodProxyAddress"
 )
 
-func imageVolume(name, reference string) corev1.Volume {
+// imageVolume mounts an OCI image as a volume. The caller passes the pull policy, which follows
+// IMAGE_PULL_POLICY like every other image the operator renders.
+func imageVolume(name, reference string, pullPolicy corev1.PullPolicy) corev1.Volume {
 	return corev1.Volume{
 		Name: name,
 		VolumeSource: corev1.VolumeSource{
 			Image: &corev1.ImageVolumeSource{
 				Reference:  reference,
-				PullPolicy: corev1.PullIfNotPresent,
+				PullPolicy: pullPolicy,
 			},
 		},
 	}
+}
+
+// EffectiveArchitecture returns the architecture the construct renders. Static-ga needs the proxy image. Without
+// the image the resource keeps the legacy static pod, so selecting static-ga never renders a pod that cannot start.
+func EffectiveArchitecture(annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture, proxyImage string) architectures.DefaultArchitecture {
+	architecture := architectures.GetArchitecture(annotations, defaultArchitecture)
+	if architecture == architectures.StaticGA && proxyImage == "" {
+		return architectures.Static
+	}
+	return architecture
 }
 
 // mongodbProxySocketVolume holds only the socket file.

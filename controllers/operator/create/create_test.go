@@ -2564,3 +2564,19 @@ func TestAgentCredentialStatus(t *testing.T) {
 	assert.Equal(t, status.PhasePending, AgentCredentialStatus(notFound, "failed to prepare StatefulSet").Phase())
 	assert.Equal(t, status.PhaseFailed, AgentCredentialStatus(fmt.Errorf("boom"), "failed to prepare StatefulSet").Phase())
 }
+
+func TestDatabaseInKubernetesFallsBackToStaticWhenTheProxyImageIsMissing(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	secretClient := secrets.SecretClient{KubeClient: fakeClient}
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architectures.StaticGA))
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
+
+	require.NoError(t, err)
+	database := container.GetByName(util.DatabaseContainerName, created.Spec.Template.Spec.Containers)
+	require.NotNil(t, database)
+	assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, database.Command)
+}

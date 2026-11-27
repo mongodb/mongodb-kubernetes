@@ -17,15 +17,16 @@ const (
 	// sun_path holds 108 bytes on Linux and 104 on macOS, including the terminating NUL.
 	maxSocketPathLength = 103
 
-	// socketUmask is the umask under which the socket is created, so that it never exists with wider
-	// permissions, not even for a moment.
-	socketUmask = 0o177
+	// socketUmask leaves the socket at 0666: a Pod under managedSecurityContext can run the Agent and the proxy
+	// as different UIDs with no shared group, and an owner-only mode locks the Agent out. The socket volume is
+	// pod-local and mounted only in the Agent and database containers, so no other container can reach it.
+	socketUmask = 0o111
 )
 
 // Listen opens the listener for the process API.
 //
 // The address must start with unix:// and name an absolute path reserved for one proxy instance.
-// Listen removes any socket left at that path and binds with mode 0600. Close removes the socket.
+// Listen removes any socket left at that path and binds with mode 0666. Close removes the socket.
 func Listen(addr string) (net.Listener, error) {
 	path, ok := strings.CutPrefix(addr, UnixScheme)
 	if !ok {

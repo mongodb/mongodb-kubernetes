@@ -478,6 +478,7 @@ func setupMongoDBCRD(
 	backupEnableDelay time.Duration,
 	omMetrics operator.OMMetricsMultiplexer,
 ) error {
+	imagePullPolicy := corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))
 	if err := operator.AddStandaloneController(
 		ctx,
 		mgr,
@@ -490,6 +491,7 @@ func setupMongoDBCRD(
 		agentDebugImage,
 		defaultArchitecture,
 		defaultImageType,
+		imagePullPolicy,
 		omMetrics,
 	); err != nil {
 		return err
@@ -506,6 +508,7 @@ func setupMongoDBCRD(
 		agentDebugImage,
 		defaultArchitecture,
 		defaultImageType,
+		imagePullPolicy,
 		omMetrics,
 		managedCertificateAllowedIssuers(),
 	); err != nil {
@@ -525,6 +528,7 @@ func setupMongoDBCRD(
 		defaultImageType,
 		memberClusterObjectsMap,
 		backupEnableDelay,
+		imagePullPolicy,
 		omMetrics,
 		managedCertificateAllowedIssuers(),
 	); err != nil {
@@ -536,7 +540,8 @@ func setupMongoDBCRD(
 }
 
 func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, managedCertificateAllowedIssuers()); err != nil {
+	imagePullPolicy := corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, imagePullPolicy, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
@@ -550,7 +555,8 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, omMetrics operator.OMMetricsMultiplexer) error {
 	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics, managedCertificateAllowedIssuers()); err != nil {
+	imagePullPolicy := corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, imagePullPolicy, omMetrics, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).

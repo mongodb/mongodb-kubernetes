@@ -87,6 +87,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	enableClusterMongoDBRoles     bool
 
 	imageUrls                         images.ImageUrls
+	imagePullPolicy                   corev1.PullPolicy
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 
@@ -1096,6 +1097,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 			WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+			WithImagePullPolicy(r.imagePullPolicy),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithDefaultArchitecture(r.defaultArchitecture),
@@ -1731,6 +1733,7 @@ func AddMultiReplicaSetController(
 	defaultImageType architectures.ImageType,
 	requiredHealthyStreak int,
 	memberClustersMap map[string]cluster.Cluster,
+	imagePullPolicy corev1.PullPolicy,
 	omMetrics OMMetricsMultiplexer,
 	allowedIssuers certs.AllowedIssuers,
 ) error {
@@ -1740,6 +1743,7 @@ func AddMultiReplicaSetController(
 
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), omMetrics, certManagerReadiness)
+	reconciler.imagePullPolicy = imagePullPolicy
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err

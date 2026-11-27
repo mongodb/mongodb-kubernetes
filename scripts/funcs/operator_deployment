@@ -7,9 +7,6 @@ get_operator_helm_values() {
   local database_registry=${DATABASE_REGISTRY}
   local database_name=${DATABASE_NAME:=mongodb-kubernetes-database}
   local proxy_image="${MDB_MONGODB_PROXY_IMAGE:-}"
-  local proxy_repository="${proxy_image%:*}"
-  local proxy_name="${proxy_repository##*/}"
-  local proxy_version="${proxy_image##*:}"
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
@@ -51,11 +48,8 @@ get_operator_helm_values() {
   )
 
   if [[ -n "${proxy_image}" ]]; then
-    config+=(
-      "registry.mongodbProxy=${proxy_repository%/*}"
-      "mongodbProxy.name=${proxy_name}"
-      "mongodbProxy.version=${proxy_version}"
-    )
+    # Pass the reference unchanged: splitting it by hand loses a digest and can move a registry port into the name.
+    config+=("mongodbProxy.image=${proxy_image}")
   fi
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then

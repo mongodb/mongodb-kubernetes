@@ -2,6 +2,7 @@ package construct
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,10 +23,10 @@ const (
 	testInitImage    = "quay.io/mongodb/mongodb-kubernetes-init-database:1.0.0"
 )
 
-func proxyTestStatefulSet(annotations map[string]string, arch architectures.DefaultArchitecture, proxyImage string) appsv1.StatefulSet {
+func proxyTestStatefulSet(annotations map[string]string, arch architectures.DefaultArchitecture, proxyImage string, extra ...func(*DatabaseStatefulSetOptions)) appsv1.StatefulSet {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	mdb.Annotations = annotations
-	return DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+	modifications := []func(*DatabaseStatefulSetOptions){
 		GetPodEnvOptions(),
 		WithDefaultArchitecture(arch),
 		func(o *DatabaseStatefulSetOptions) {
@@ -35,7 +36,8 @@ func proxyTestStatefulSet(annotations map[string]string, arch architectures.Defa
 			o.MongodbImage = testMongodbImage
 			o.InitDatabaseImage = testInitImage
 		},
-	), zap.S())
+	}
+	return DatabaseStatefulSet(*mdb, ReplicaSetOptions(append(modifications, extra...)...), zap.S())
 }
 
 func containerByName(t *testing.T, sts appsv1.StatefulSet, name string) corev1.Container {
@@ -71,12 +73,8 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, testProxyImage, volume.Image.Reference)
 	})
 
-	t.Run("the agent container gets the MongoDB image and the proxy address", func(t *testing.T) {
+	t.Run("the agent container gets the init-database image", func(t *testing.T) {
 		agent := containerByName(t, sts, util.AgentContainerName)
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-init-database", MountPath: "/mnt/init-database", ReadOnly: true})
 
 		initVolume, found := volumeByName(sts, "mongodb-init-database")
@@ -84,10 +82,18 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		require.NotNil(t, initVolume.Image)
 		assert.Equal(t, testInitImage, initVolume.Image.Reference)
 
-		volume, found := volumeByName(sts, "mongodb-binaries")
-		require.True(t, found)
-		require.NotNil(t, volume.Image)
-		assert.Equal(t, testMongodbImage, volume.Image.Reference)
+		// The Agent reads the database tools from its own image, so the MongoDB image is mounted nowhere else.
+		_, found = volumeByName(sts, "mongodb-binaries")
+		assert.False(t, found)
+	})
+
+	t.Run("the agent launcher checks the image volume before it runs", func(t *testing.T) {
+		agent := containerByName(t, sts, util.AgentContainerName)
+		require.Len(t, agent.Command, 3)
+		assert.Equal(t, "/bin/bash", agent.Command[0])
+		assert.Equal(t, "-c", agent.Command[1])
+		assert.True(t, strings.HasPrefix(agent.Command[2], initDatabaseImageVolumeCheck(staticAgentLauncherPath)), agent.Command[2])
+		assert.True(t, strings.HasSuffix(agent.Command[2], "exec "+staticAgentLauncherPath), agent.Command[2])
 	})
 
 	t.Run("the proxy listens on a socket that only the agent and the database container mount", func(t *testing.T) {
@@ -142,9 +148,10 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 
 func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 	for name, tc := range map[string]struct {
-		annotations map[string]string
-		arch        architectures.DefaultArchitecture
-		wantProxy   bool
+		annotations  map[string]string
+		arch         architectures.DefaultArchitecture
+		noProxyImage bool
+		wantProxy    bool
 	}{
 		"static-ga default": {
 			arch:      architectures.StaticGA,
@@ -154,6 +161,11 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 			annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)},
 			arch:        architectures.Static,
 			wantProxy:   true,
+		},
+		"static-ga without a proxy image falls back to static": {
+			arch:         architectures.StaticGA,
+			noProxyImage: true,
+			wantProxy:    false,
 		},
 		"legacy static remains unchanged": {
 			arch:      architectures.Static,
@@ -175,39 +187,48 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sts := proxyTestStatefulSet(tc.annotations, tc.arch, testProxyImage)
+			proxyImage := testProxyImage
+			if tc.noProxyImage {
+				proxyImage = ""
+			}
+			sts := proxyTestStatefulSet(tc.annotations, tc.arch, proxyImage)
 
 			_, hasProxyVolume := volumeByName(sts, "mongodb-proxy")
 			assert.Equal(t, tc.wantProxy, hasProxyVolume)
 			if tc.wantProxy {
 				mongod := containerByName(t, sts, util.DatabaseContainerName)
 				agent := containerByName(t, sts, util.AgentContainerName)
-				assert.Equal(t, "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
+				assert.Equal(t, "example.com/mongodb-agent:release", agent.Image)
 				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongod.Command)
-				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
 				for _, c := range sts.Spec.Template.Spec.Containers {
 					assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
 				}
 				return
 			}
-			if tc.arch == architectures.Static || tc.annotations[architectures.ArchitectureAnnotation] == string(architectures.Static) {
+			if tc.arch == architectures.Static || tc.annotations[architectures.ArchitectureAnnotation] == string(architectures.Static) || tc.noProxyImage {
 				assert.Equal(t, "example.com/mongodb-agent:release", containerByName(t, sts, util.AgentContainerName).Image)
 			}
 			for _, c := range sts.Spec.Template.Spec.Containers {
 				assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)
 				for _, e := range c.Env {
 					assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
-					assert.NotEqual(t, "MDB_MONGOD_ROOT", e.Name)
-					assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
 				}
 			}
-			for _, volumeName := range []string{"mongodb-proxy", "mongodb-binaries", "mongodb-proxy-socket"} {
+			for _, volumeName := range []string{"mongodb-proxy", "mongodb-proxy-socket"} {
 				_, found := volumeByName(sts, volumeName)
 				assert.False(t, found, volumeName)
 			}
-			if tc.arch == architectures.Static || tc.annotations[architectures.ArchitectureAnnotation] == string(architectures.Static) {
+			if tc.arch == architectures.Static || tc.annotations[architectures.ArchitectureAnnotation] == string(architectures.Static) || tc.noProxyImage {
 				_, found := volumeByName(sts, "mongodb-init-database")
 				assert.True(t, found, "legacy static uses the init-database image volume")
+			}
+			if tc.noProxyImage {
+				require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+				assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
+				assert.Equal(t, []string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"},
+					containerByName(t, sts, util.DatabaseContainerName).Command)
+				assert.Contains(t, containerByName(t, sts, util.AgentContainerName).Env,
+					corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 			}
 		})
 	}
@@ -228,4 +249,38 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 	}
 	_, found := volumeByName(sts, "mongodb-init-database")
 	assert.True(t, found)
+}
+
+func TestMongodbProxyIgnoresAgentDebugAndItsSharedProcessNamespace(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+		GetPodEnvOptions(),
+		WithDefaultArchitecture(architectures.StaticGA),
+		func(o *DatabaseStatefulSetOptions) {
+			o.AgentImage = "example.com/mongodb-agent:release"
+			o.MongodbProxyImage = testProxyImage
+			o.MongodbImage = testMongodbImage
+			o.InitDatabaseImage = testInitImage
+			o.AgentDebug = true
+			o.AgentDebugImage = "example.com/delve:latest"
+		},
+	), zap.S())
+
+	assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace, "the debug sidecar must not reopen the proxy's process namespace")
+	for _, c := range sts.Spec.Template.Spec.InitContainers {
+		assert.NotEqual(t, "delve-sidecar", c.Name)
+	}
+}
+
+func TestMongodbProxyImageVolumesUseTheConfiguredPullPolicy(t *testing.T) {
+	sts := proxyTestStatefulSet(nil, architectures.StaticGA, testProxyImage, func(o *DatabaseStatefulSetOptions) {
+		o.ImagePullPolicy = corev1.PullNever
+	})
+
+	for _, name := range []string{mongodbProxyVolumeName, initDatabaseVolumeName} {
+		volume, found := volumeByName(sts, name)
+		require.True(t, found, name)
+		require.NotNil(t, volume.Image, name)
+		assert.Equal(t, corev1.PullNever, volume.Image.PullPolicy, name)
+	}
 }

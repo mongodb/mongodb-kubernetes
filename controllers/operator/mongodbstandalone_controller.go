@@ -52,9 +52,10 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omMetrics OMMetricsMultiplexer) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, imagePullPolicy corev1.PullPolicy, omMetrics OMMetricsMultiplexer) error {
 	// Create a new controller
 	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics)
+	reconciler.imagePullPolicy = imagePullPolicy
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -136,6 +137,7 @@ type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
 	omConnectionFactory       om.ConnectionFactory
 	imageUrls                 images.ImageUrls
+	imagePullPolicy           corev1.PullPolicy
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
 
@@ -309,6 +311,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithImagePullPolicy(r.imagePullPolicy),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

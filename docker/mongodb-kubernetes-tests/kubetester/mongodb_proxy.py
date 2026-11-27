@@ -12,20 +12,28 @@ PROXY_ADDRESS = f"unix://{PROXY_SOCKET}"
 AGENT_CONTAINER = "mongodb-agent"
 DATABASE_CONTAINER = "mongodb-enterprise-database"
 
+# static-ga runs the Agent binary from the Agent container image. The version mapping names a released Agent, which
+# does not support -mongodProxyAddress, so the static-ga proxy tests select an Agent built from the mms-automation
+# branch that adds it. The tag belongs to the e2e configuration, not to the operator.
+STATIC_GA_AGENT_IMAGE = "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:kube530-review-fixes"
+
+
+def static_ga_agent_containers() -> list[dict]:
+    """The pod template container entry that selects STATIC_GA_AGENT_IMAGE for the Agent.
+
+    A merge keeps every field the operator sets and replaces only the image, and the override also makes the
+    operator skip the version lookup for the Agent image.
+    """
+    return [{"name": AGENT_CONTAINER, "image": STATIC_GA_AGENT_IMAGE}]
+
 
 def proxy_image() -> Optional[str]:
     return os.environ.get("MDB_MONGODB_PROXY_IMAGE") or None
 
 
 def proxy_helm_values(image: str) -> dict[str, str]:
-    """The Helm values that make the chart pass `image` (registry/name:version) to the operator."""
-    repository, _, version = image.rpartition(":")
-    registry, _, name = repository.rpartition("/")
-    return {
-        "registry.mongodbProxy": registry,
-        "mongodbProxy.name": name,
-        "mongodbProxy.version": version,
-    }
+    """The Helm value that makes the chart pass `image` to the operator unchanged."""
+    return {"mongodbProxy.image": image}
 
 
 def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
@@ -69,7 +77,7 @@ def query_proxy(pod: str, namespace: str) -> dict:
 def mongod_identity(pod: str, namespace: str) -> str:
     """Returns "<pid>:<start time>" of mongod in the database container, empty when it is not running.
 
-    The proxy does not report a pid, and the pid alone can repeat after a restart, so the start time is part of it.
+    The pid alone can repeat after a restart, so the start time is part of the identity.
     """
     out = KubernetesTester.run_command_in_pod_container(
         pod,
