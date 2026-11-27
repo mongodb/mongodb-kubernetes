@@ -15,7 +15,7 @@ export CENTRAL_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
 export CUSTOM_MDB_VERSION=6.0.5
 
 # MCK is capable of deploying a webhook (optional).

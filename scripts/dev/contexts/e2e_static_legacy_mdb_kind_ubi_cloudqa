@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+export ops_manager_version="cloud_qa"
+
+# This is required to be able to rebuild the om image and use that image which has been rebuilt
+export OPS_MANAGER_REGISTRY="${REGISTRY}"
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
+export CUSTOM_OM_VERSION
+
+export CUSTOM_MDB_PREV_VERSION=6.0.16
+export CUSTOM_MDB_VERSION=7.0.5
+
+source "${script_dir}/variables/mongodb_search_dev"
+
+# Legacy static keeps the shared process namespace, the utilities holder, and the launcher symlinks.
+export MDB_DEFAULT_ARCHITECTURE=static

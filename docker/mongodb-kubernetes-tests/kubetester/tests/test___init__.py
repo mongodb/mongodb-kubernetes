@@ -1,8 +1,15 @@
+import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import kubernetes.client
 from kubeobject import CustomObject
+from kubetester.kubetester import (
+    _static_container_skip_marker,
+    assert_container_count_with_static,
+    assert_statefulset_architecture,
+    get_migration_target_architecture,
+)
 
 
 class TestCreateOrUpdate(unittest.TestCase):
@@ -157,3 +164,134 @@ class TestCreateOrUpdate(unittest.TestCase):
 
         # assert status is taken from object_from_api_server
         assert object_to_api_server["status"] == {"status": "running"}
+
+
+class TestStaticGAArchitecture(unittest.TestCase):
+    def test_migration_target_and_skip_marker(self):
+        for current, expected in (
+            ("non-static", "static-ga"),
+            ("static-ga", "non-static"),
+        ):
+            with self.subTest(current=current), patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": current}):
+                self.assertEqual(get_migration_target_architecture(), expected)
+                self.assertFalse(_static_container_skip_marker().mark.args[0])
+
+    def test_architecture_assertion_distinguishes_proxy_and_non_static(self):
+        cases = (
+            ("non-static", ["/opt/scripts/agent-launcher.sh"], None, None, False),
+            ("static-ga", ["/mnt/proxy/proxy"], "proxy-image", None, False),
+            (
+                "static-ga",
+                ["bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"],
+                None,
+                True,
+                True,
+            ),
+        )
+        for architecture, command, proxy_volume, share_process_namespace, expect_error in cases:
+            with self.subTest(architecture=architecture, command=command):
+                containers = [kubernetes.client.V1Container(name="mongodb-enterprise-database", command=command)]
+                volumes = []
+                if architecture != "non-static":
+                    agent_env = [
+                        kubernetes.client.V1EnvVar(
+                            name="MDB_STATIC_CONTAINERS_ARCHITECTURE",
+                            value="true" if expect_error else "static-ga",
+                        )
+                    ]
+                    if not expect_error:
+                        agent_env.append(
+                            kubernetes.client.V1EnvVar(
+                                name="MDB_MONGODB_PROXY_ADDRESS",
+                                value="unix:///var/run/mongodb-proxy/proxy.sock",
+                            )
+                        )
+                    containers.append(
+                        kubernetes.client.V1Container(
+                            name="mongodb-agent",
+                            command=["/mnt/init-database/scripts/agent-launcher.sh"],
+                            env=agent_env,
+                        )
+                    )
+                if proxy_volume is not None:
+                    volumes.append(
+                        kubernetes.client.V1Volume(
+                            name="mongodb-proxy",
+                            image=kubernetes.client.V1ImageVolumeSource(reference=proxy_volume),
+                        )
+                    )
+                if architecture == "static-ga" and not expect_error:
+                    volumes.append(
+                        kubernetes.client.V1Volume(
+                            name="mongodb-init-database",
+                            image=kubernetes.client.V1ImageVolumeSource(reference="init-image"),
+                        )
+                    )
+
+                statefulset = kubernetes.client.V1StatefulSet(
+                    spec=kubernetes.client.V1StatefulSetSpec(
+                        selector=kubernetes.client.V1LabelSelector(match_labels={"app": "test"}),
+                        service_name="test",
+                        template=kubernetes.client.V1PodTemplateSpec(
+                            spec=kubernetes.client.V1PodSpec(
+                                containers=containers,
+                                volumes=volumes,
+                                share_process_namespace=share_process_namespace,
+                            )
+                        ),
+                    )
+                )
+                if expect_error:
+                    with self.assertRaises(AssertionError):
+                        assert_statefulset_architecture(statefulset, architecture)
+                else:
+                    assert_statefulset_architecture(statefulset, architecture)
+
+    def test_architecture_assertion_accepts_legacy_static(self):
+        containers = [
+            kubernetes.client.V1Container(
+                name="mongodb-enterprise-database",
+                command=["bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"],
+            ),
+            kubernetes.client.V1Container(
+                name="mongodb-agent",
+                command=["/usr/local/bin/agent-launcher-shim.sh"],
+                env=[kubernetes.client.V1EnvVar(name="MDB_STATIC_CONTAINERS_ARCHITECTURE", value="true")],
+            ),
+        ]
+
+        def statefulset(share_process_namespace: bool) -> kubernetes.client.V1StatefulSet:
+            return kubernetes.client.V1StatefulSet(
+                spec=kubernetes.client.V1StatefulSetSpec(
+                    selector=kubernetes.client.V1LabelSelector(match_labels={"app": "test"}),
+                    service_name="test",
+                    template=kubernetes.client.V1PodTemplateSpec(
+                        spec=kubernetes.client.V1PodSpec(
+                            containers=containers,
+                            share_process_namespace=share_process_namespace,
+                        )
+                    ),
+                )
+            )
+
+        assert_statefulset_architecture(statefulset(share_process_namespace=True), "static")
+        with self.assertRaises(AssertionError):
+            assert_statefulset_architecture(statefulset(share_process_namespace=False), "static")
+
+
+class TestAssertContainerCountWithStatic(unittest.TestCase):
+    def test_legacy_static_matches_the_non_static_count(self):
+        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static"}):
+            assert_container_count_with_static(3, 3)
+            with self.assertRaises(AssertionError):
+                assert_container_count_with_static(4, 3)
+
+    def test_static_ga_matches_the_non_static_count(self):
+        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static-ga"}):
+            assert_container_count_with_static(3, 3)
+            with self.assertRaises(AssertionError):
+                assert_container_count_with_static(4, 3)
+
+    def test_non_static_has_no_extra_container(self):
+        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "non-static"}):
+            assert_container_count_with_static(3, 3)

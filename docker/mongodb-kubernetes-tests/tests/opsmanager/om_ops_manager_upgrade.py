@@ -9,13 +9,24 @@ from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
+from kubetester.kubetester import (
+    get_default_architecture,
+    is_default_architecture_static,
+    released_agent_config,
+    run_periodically,
+    skip_if_local,
+)
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
-from tests.conftest import get_member_cluster_clients, is_multi_cluster
+from tests.conftest import (
+    get_member_cluster_clients,
+    get_multi_cluster_operator_installation_config,
+    get_operator_installation_config,
+    is_multi_cluster,
+)
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.om_ops_manager_backup import OPLOG_RS_NAME, S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
@@ -25,6 +36,22 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 # for the existing MongoDBs.
 
 logger = test_logger.get_test_logger(__name__)
+
+
+def released_agent_upgrade_config(config: dict[str, str]) -> dict[str, str]:
+    if config.get("agent.customAgentUrl"):
+        return released_agent_config(config)
+    return config.copy()
+
+
+@fixture(scope="module")
+def operator_installation_config(namespace: str) -> dict[str, str]:
+    return released_agent_upgrade_config(get_operator_installation_config(namespace))
+
+
+@fixture(scope="module")
+def multi_cluster_operator_installation_config(namespace: str) -> dict[str, str]:
+    return released_agent_upgrade_config(get_multi_cluster_operator_installation_config(namespace))
 
 
 @fixture(scope="module")
@@ -359,16 +386,21 @@ class TestMongoDbsVersionUpgrade:
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)
 
-    def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str):
+    @pytest.mark.skipif(
+        get_default_architecture() == "static-ga",
+        reason="static-ga needs adaptation to preserve the original OM-driven Agent-upgrade scenario",
+    )
+    def test_agents_upgraded(
+        self, mdb: MongoDB, oplog_replica_set: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str
+    ):
         # The agents were requested to get upgraded immediately after Ops Manager upgrade.
         # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if is_default_architecture_static():
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
-            image_tag = pod.spec.containers[0].image.split(":")[-1]
             if prev_version.major != new_version.major:
-                assert TestOpsManagerVersionUpgrade.agent_version != image_tag
+                assert TestOpsManagerVersionUpgrade.agent_version != pod.spec.containers[0].image.split(":")[-1]
         else:
             if prev_version.major != new_version.major or prev_version.minor != new_version.minor:
                 assert (

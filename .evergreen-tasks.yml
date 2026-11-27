@@ -374,8 +374,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # Needs Kubernetes 1.36 (OCI image volumes), a pullable proxy image (MDB_MONGODB_PROXY_IMAGE) and an agent that
-  # supports -mongodProxyAddress. It runs in the static operator task group.
+  # Static operator variants exercise the candidate Agent and proxy using OCI image volumes.
   - name: e2e_replica_set_mongodb_proxy
     depends_on:
       - name: build_agent_images_ubi

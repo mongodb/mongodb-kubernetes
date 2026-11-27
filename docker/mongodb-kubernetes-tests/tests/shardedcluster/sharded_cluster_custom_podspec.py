@@ -105,6 +105,7 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
             assert len(containers) == 3
             assert "mongodb-agent" in container_names
             assert "mongodb-enterprise-database" in container_names
+            assert "mongodb-agent-operator-utilities" not in container_names
             assert "sharded-cluster-sidecar-override" in container_names
 
             containers = shard1_sts.spec.template.spec.containers
@@ -113,20 +114,29 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
             assert len(containers) == 3
             assert "mongodb-agent" in container_names
             assert "mongodb-enterprise-database" in container_names
+            assert "mongodb-agent-operator-utilities" not in container_names
             assert "sharded-cluster-sidecar" in container_names
 
-            resources = containers[2].resources
+            resources = next(
+                container for container in containers if container.name == "sharded-cluster-sidecar"
+            ).resources
         else:
             containers = shard1_sts.spec.template.spec.containers
             assert len(containers) == 2
-            assert containers[0].name == "mongodb-enterprise-database"
-            assert containers[1].name == "sharded-cluster-sidecar"
+            assert {container.name for container in containers} == {
+                "mongodb-enterprise-database",
+                "sharded-cluster-sidecar",
+            }
 
             containers = shard0_sts.spec.template.spec.containers
             assert len(containers) == 2
-            assert containers[0].name == "mongodb-enterprise-database"
-            assert containers[1].name == "sharded-cluster-sidecar-override"
-            resources = containers[1].resources
+            assert {container.name for container in containers} == {
+                "mongodb-enterprise-database",
+                "sharded-cluster-sidecar-override",
+            }
+            resources = next(
+                container for container in containers if container.name == "sharded-cluster-sidecar-override"
+            ).resources
 
         assert resources.limits["cpu"] == "1"
         assert resources.requests["cpu"] == "500m"

@@ -5,10 +5,8 @@ import os
 import time
 from typing import Optional
 
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import PROXY_ADDRESS, PROXY_SOCKET, KubernetesTester
 
-PROXY_SOCKET = "/var/run/mongodb-proxy/proxy.sock"
-PROXY_ADDRESS = f"unix://{PROXY_SOCKET}"
 AGENT_CONTAINER = "mongodb-agent"
 DATABASE_CONTAINER = "mongodb-enterprise-database"
 

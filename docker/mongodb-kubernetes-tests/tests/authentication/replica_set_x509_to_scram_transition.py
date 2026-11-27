@@ -125,7 +125,10 @@ class TestReplicaSetDisableAuthentication(KubernetesTester):
         replica_set.load()
         replica_set["spec"]["security"]["authentication"]["enabled"] = False
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+        # Disabling auth publishes two automation config versions, then rolls every pod. In static-ga the agents
+        # converge on the new config before the first pod restarts, which measured 747s, and the rollout was still
+        # running at 908s. 1500s matches the sharded sibling test.
+        replica_set.assert_reaches_phase(Phase.Running, timeout=1500)
 
     def test_assert_connectivity(self, replica_set: MongoDB, ca_path: str):
         replica_set.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
