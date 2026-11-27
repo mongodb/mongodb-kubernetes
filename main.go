@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +47,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -98,6 +100,7 @@ func init() {
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
+	utilruntime.Must(certmanagerv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -333,7 +336,22 @@ func run() error {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap, backupEnableDelay, omMetricsMultiplexer); err != nil {
+		if err := setupMongoDBCRD(
+			ctx,
+			mgr,
+			imageUrls,
+			initDatabaseNonStaticImageVersion,
+			databaseNonStaticImageVersion,
+			forceEnterprise,
+			enableClusterMongoDBRoles,
+			agentDebug,
+			agentDebugImage,
+			defaultArchitecture,
+			defaultImageType,
+			memberClusterObjectsMap,
+			backupEnableDelay,
+			omMetricsMultiplexer,
+		); err != nil {
 			return err
 		}
 	}
@@ -444,14 +462,72 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration, omMetrics operator.OMMetricsMultiplexer) error {
-	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, omMetrics); err != nil {
+func setupMongoDBCRD(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	backupEnableDelay time.Duration,
+	omMetrics operator.OMMetricsMultiplexer,
+) error {
+	if err := operator.AddStandaloneController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+		omMetrics,
+	); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, omMetrics); err != nil {
+	if err := operator.AddReplicaSetController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+		omMetrics,
+		managedCertificateAllowedIssuers(),
+	); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap, backupEnableDelay, omMetrics); err != nil {
+	if err := operator.AddShardedClusterController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+		memberClusterObjectsMap,
+		backupEnableDelay,
+		omMetrics,
+		managedCertificateAllowedIssuers(),
+	); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
@@ -460,7 +536,7 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 }
 
 func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType); err != nil {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
@@ -474,7 +550,7 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, omMetrics operator.OMMetricsMultiplexer) error {
 	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics); err != nil {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
@@ -663,6 +739,13 @@ func printEnvVariables() {
 
 	// Only env variables with one of these prefixes will be printed
 	env.PrintWithPrefix(printableEnvPrefixes)
+}
+
+// managedCertificateAllowedIssuers reads the issuers that resources may point at from a
+// security.managedCertificate issuerRef (helm value security.managedCertificate.allowedIssuers).
+// An empty value allows any issuer.
+func managedCertificateAllowedIssuers() certs.AllowedIssuers {
+	return certs.ParseAllowedIssuers(env.ReadOrDefault(util.ManagedCertificateAllowedIssuersEnv, ""))
 }
 
 func getOperatorEnv() util.OperatorEnvironment {

@@ -13,6 +13,9 @@ const (
 	Allow                 Mode = "allowTLS"
 	ConfigMapVolumeCAName      = "secret-ca"
 	CAConfigMapKey             = "ca-pem"
+	// ConfigMapVolumeClusterCAName is the volume for the operator-owned client-category CA
+	// bundle ConfigMap mounted in managed-certificate mode.
+	ConfigMapVolumeClusterCAName = "secret-clusterca"
 )
 
 func GetTLSModeFromMongodConfig(config map[string]any) Mode {

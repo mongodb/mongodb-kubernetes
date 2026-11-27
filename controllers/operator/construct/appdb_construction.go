@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -11,14 +12,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -39,6 +41,10 @@ const (
 	headlessAgentEnv             = "HEADLESS_AGENT"
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
+
+	// OpsManagerCABundleHashAnnotation is the AppDB pod template annotation holding the hash of the
+	// operator-managed Ops Manager CA bundle the agent trusts through -httpsCAFile.
+	OpsManagerCABundleHashAnnotation = "opsManagerCABundleHash"
 )
 
 type AppDBStatefulSetOptions struct {
@@ -51,6 +57,17 @@ type AppDBStatefulSetOptions struct {
 
 	PrometheusTLSCertHash string
 	CustomAgentURL        string
+
+	// OpsManagerCABundleHash is the hash of the operator-managed Ops Manager CA bundle. The
+	// monitoring connection is initialized with -httpsCAFile, so a changed bundle (a CA rotation
+	// widening it, or a prune) must restart the AppDB pods before Ops Manager serves a leaf on the
+	// new CA.
+	OpsManagerCABundleHash string
+
+	// ManagedServerCABundleHash is the hash of the operator-managed AppDB server CA bundle. A
+	// running member keeps the TLS client state it built with the bundle it loaded, so a widened or
+	// pruned bundle must replace the AppDB pods.
+	ManagedServerCABundleHash string
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -205,6 +222,10 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 }
 
 func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
+	if appDb.GetSecurity().IsManagedCertificateEnabled() {
+		return appDb.GetCAConfigMapName()
+	}
+
 	caName := fmt.Sprintf("%s-ca", appDb.Name())
 
 	tlsConfig := appDb.GetTLSConfig()
@@ -252,7 +273,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 	if vault.IsVaultSecretBackend() {
 		appDBSecretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
 		if ShouldEnableMonitoring(podVars) {
-			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
+			appDBSecretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(podVars.ProjectID)
 		}
 		if appDB.GetSecurity().IsTLSEnabled() {
 			secretName := appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()) + certs.OperatorGeneratedCertSuffix
@@ -278,7 +299,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		if ShouldEnableMonitoring(podVars) {
 			modification = podtemplatespec.Apply(
 				modification,
-				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
+				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(podVars.ProjectID))),
 			)
 		}
 	}
@@ -381,6 +402,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if len(podSpec.Spec.Containers) < originalLen {
 			log.Warnf("Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent", monitoringAgentContainerName)
 		}
+		podSpec.Spec = WithoutHolderContainer(appsv1.StatefulSetSpec{Template: *podSpec}, log).Template.Spec
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
@@ -392,6 +414,18 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	// mounted agent-api-key secret via ${AGENT_API_KEY}) instead of embedding them in the automation config.
 	if ShouldEnableMonitoring(podVars) {
 		automationAgentCommand[idx] += " -mmsGroupId=" + podVars.ProjectID + " -mmsApiKey=${AGENT_API_KEY}"
+	}
+
+	// Trust the Ops Manager CA for the monitoring connection to Ops Manager. The agent hands
+	// this to its monitoring module; without it the module only trusts the system root CAs.
+	opsManagerCABundleAnnotation := podtemplatespec.NOOP()
+	if ShouldMountSSLMMSCAConfigMap(podVars) {
+		automationAgentCommand[idx] += " -httpsCAFile=" + path.Join(caCertMountPath, util.CaCertMMS)
+		if opts.OpsManagerCABundleHash != "" {
+			opsManagerCABundleAnnotation = podtemplatespec.WithAnnotations(map[string]string{
+				OpsManagerCABundleHashAnnotation: opts.OpsManagerCABundleHash,
+			})
+		}
 	}
 
 	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
@@ -445,8 +479,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
 		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
 	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
-		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount, initDatabaseImageVolumeMount()}
+		withStaticContainerModification = podtemplatespec.Apply(
+			podtemplatespec.WithVolume(initDatabaseImageVolume(opts.InitAppDBImage)),
+			podtemplatespec.WithContainer(util.AgentContainerName, container.WithReadinessProbe(probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
+		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
@@ -507,6 +544,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					container.WithEnvs(appdbContainerEnv(*appDb, opts.CustomAgentURL)...),
 				),
 				vaultModification(*appDb, podVars, opts),
+				opsManagerCABundleAnnotation,
 				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
 				tlsVolumes(*appDb, podVars, log),
 			),
@@ -525,10 +563,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if appDb.IsMultiCluster() {
 		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
 		if clusterSpecItem.StatefulSetConfiguration != nil {
-			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+			sts.Spec = merge.StatefulSetSpecs(sts.Spec, WithoutHolderContainer(clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, log))
 		}
 		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}
+	ApplyManagedCABundleHashAnnotations(&sts, opts.ManagedServerCABundleHash, "")
 	return sts, nil
 }
 

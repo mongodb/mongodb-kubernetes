@@ -412,6 +412,9 @@ func (m *AppDBSpec) GetUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType
 // the CA which will recognize the certificates used to connect to the AppDB
 // deployment
 func (m *AppDBSpec) GetCAConfigMapName() string {
+	if m.GetSecurity().IsManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-server-ca-bundle", m.Name())
+	}
 	security := m.Security
 	if security != nil && security.TLSConfig != nil {
 		return security.TLSConfig.CA

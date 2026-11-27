@@ -13,6 +13,10 @@ type AppDBConfig struct {
 	IsTLSEnabled     bool
 	CAConfigMapName  string
 	ConnectionString string
+	// CABundleHash is the hash of the operator-managed AppDB CA bundle, empty when the AppDB does
+	// not use operator-managed certificates. Ops Manager and the backup daemon hold the AppDB CA in
+	// their client setup, so their pods carry it and restart when the bundle changes.
+	CABundleHash string
 }
 
 // AppDBReconciler is implemented by both the ReconcileAppDbReplicaSet (internal AppDB reconciler

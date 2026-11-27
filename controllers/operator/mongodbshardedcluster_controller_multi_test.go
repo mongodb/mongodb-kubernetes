@@ -21,7 +21,9 @@ import (
 	"golang.org/x/exp/constraints"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,8 +35,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -45,8 +50,8 @@ import (
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay, certs.CertManagerReadiness{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1301,6 +1306,63 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 			memberClusterChecks.checkMemberCertSecret(ctx, certificatesSecretsPrefix, sc.Name, shardIdx, shardMembers > 0)
 		}
 	}
+
+	snapshotHashes := func() map[string]map[string]string {
+		hashes := make(map[string]map[string]string)
+		for name, memberClient := range memberClusterMap {
+			sets := &appsv1.StatefulSetList{}
+			require.NoError(t, memberClient.List(ctx, sets))
+			hashes[name] = make(map[string]string)
+			for _, sts := range sets.Items {
+				hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+				require.NotEmpty(t, hash)
+				hashes[name][sts.Name] = hash
+			}
+		}
+		return hashes
+	}
+	before := snapshotHashes()
+	memberClient := memberClusterMap[memberClusterNames[0]]
+	oldKey := &corev1.Secret{}
+	keyName := kube.ObjectKey(sc.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID))
+	require.NoError(t, memberClient.Get(ctx, keyName, oldKey))
+	newKey := oldKey.DeepCopy()
+	newKey.Data[util.OmAgentApiKey] = []byte("member-only-key")
+	require.NoError(t, memberClient.Update(ctx, newKey))
+
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer queue.ShutDown()
+	keyHandler := watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}
+	metadataOnly := oldKey.DeepCopy()
+	metadataOnly.ResourceVersion = "metadata-only"
+	keyHandler.Update(ctx, event.UpdateEvent{ObjectOld: oldKey, ObjectNew: metadataOnly}, queue)
+	assert.Zero(t, queue.Len())
+	keyHandler.Update(ctx, event.UpdateEvent{ObjectOld: oldKey, ObjectNew: newKey}, queue)
+	require.Equal(t, 1, queue.Len())
+	request, _ := queue.Get()
+	assert.Equal(t, sc.ObjectKey(), request.NamespacedName)
+	queue.Done(request)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	after := snapshotHashes()
+	for name, oldHashes := range before {
+		if name == memberClusterNames[0] {
+			require.NotEmpty(t, oldHashes)
+			for stsName, hash := range oldHashes {
+				assert.NotEqual(t, hash, after[name][stsName], stsName)
+			}
+		} else {
+			assert.Equal(t, oldHashes, after[name])
+		}
+	}
+
+	centralKey := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, keyName, centralKey))
+	centralKey.Data[util.OmAgentApiKey] = []byte("central-only-key")
+	require.NoError(t, kubeClient.Update(ctx, centralKey))
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	assert.Equal(t, after, snapshotHashes(), "central rotation must not overwrite existing member keys")
+	require.NoError(t, memberClient.Get(ctx, keyName, newKey))
+	assert.Equal(t, "member-only-key", string(newKey.Data[util.OmAgentApiKey]))
 }
 
 func createSecretsForShards(resourceName string, shardCount int, certificatesSecretsPrefix string) []client.Object {
@@ -1535,7 +1597,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	memberClusterMap := getFakeMultiClusterMapWithClusters([]string{multicluster.LegacyCentralClusterName}, omConnectionFactory)
+	memberClusterMap := map[string]client.Client{multicluster.LegacyCentralClusterName: kubeClient}
 
 	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
@@ -1755,7 +1817,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
@@ -2916,7 +2978,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 }
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
-	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, reconciler.defaultImageType, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay)
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, reconciler.defaultImageType, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay, certs.CertManagerReadiness{})
 	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }

@@ -2,8 +2,10 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strconv"
 	"testing"
 	"time"
@@ -26,6 +28,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
@@ -33,6 +38,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -41,9 +47,165 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
+
+func TestAppDBManagedCABundleCopyCarriesOwnerUID(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	bundleName := manager.Spec.AppDB.GetCAConfigMapName()
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: bundleName, Namespace: manager.Namespace, UID: "central-bundle"},
+		Data:       map[string]string{"ca-pem": "issued"},
+	}))
+
+	appDB, err := NewAppDBReplicaSetReconciler(ctx, images.ImageUrls{}, "", manager, r.ReconcileCommonController, om.NewOpsManagerConnection, r.memberClustersMap, architectures.NonStatic, "", zap.S())
+	require.NoError(t, err)
+	require.True(t, appDB.replicateTLSCAConfigMap(ctx, manager, zap.S()).IsOK())
+
+	copied := &corev1.ConfigMap{}
+	require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, bundleName), copied))
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), copied.Labels)
+}
+
+func TestAppDBManagedCertificatesMultiClusterDelivery(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	r.memberClustersMap["east"] = central
+	returning := r.memberClustersMap["west"]
+	delete(r.memberClustersMap, "west")
+	preparation := r.ensureAppDBCertAndCA(ctx, manager, zap.S())
+	require.NotNil(t, preparation.condition)
+	leaf := getManagedCertificateObject(t, ctx, central, "managed-om-db-managed-cert")
+	ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, leaf.Spec.DNSNames...)
+	markAllManagedCertificatesReady(t, ctx, central)
+	createSecretsForManagedCertificates(t, ctx, central, ca)
+	crt, key := issue()
+	source, err := central.GetSecret(ctx, kube.ObjectKey(manager.Namespace, leaf.Spec.SecretName))
+	require.NoError(t, err)
+	source.Type = corev1.SecretTypeTLS
+	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": ca}
+	require.NoError(t, central.Update(ctx, &source))
+	preparation = r.ensureAppDBCertAndCA(ctx, manager, zap.S())
+	require.True(t, preparation.status.IsOK(), preparation.status.Message())
+	bundleBefore, err := central.GetConfigMap(ctx, kube.ObjectKey(manager.Namespace, "managed-om-db-managed-server-ca-bundle"))
+	require.NoError(t, err)
+	require.NotEmpty(t, bundleBefore.OwnerReferences)
+	bundleBefore.UID = types.UID("managed-appdb-bundle")
+	require.NoError(t, central.Update(ctx, &bundleBefore))
+
+	reconciler, err := newAppDbMultiReconciler(ctx, central, manager, r.memberClustersMap, zap.S(), nil)
+	require.NoError(t, err)
+	status := reconciler.replicateTLSCAConfigMap(ctx, manager, zap.S())
+	require.True(t, status.IsOK(), status.Message())
+	bundleAfter, err := central.GetConfigMap(ctx, kube.ObjectKey(manager.Namespace, bundleBefore.Name))
+	require.NoError(t, err)
+	assert.Equal(t, bundleBefore.OwnerReferences, bundleAfter.OwnerReferences, "a central cluster that is also a member must keep the actual OM owner")
+	assert.Equal(t, bundleBefore.ResourceVersion, bundleAfter.ResourceVersion, "replication must not rewrite the central source")
+	assert.True(t, reconciler.ensureTLSSecretAndCreatePEMIfNeeded(ctx, manager, zap.S()).IsOK())
+	pemName := source.Name + "-pem"
+	firstPEM, err := central.GetSecret(ctx, kube.ObjectKey(manager.Namespace, pemName))
+	require.NoError(t, err)
+	firstHash := string(firstPEM.Data[util.LatestHashSecretKey])
+	require.NotEmpty(t, firstHash)
+	assert.Equal(t, append(append([]byte{}, crt...), key...), firstPEM.Data[firstHash])
+
+	crt, key = issue()
+	source, err = central.GetSecret(ctx, kube.ObjectKey(manager.Namespace, leaf.Spec.SecretName))
+	require.NoError(t, err)
+	source.Data["tls.crt"], source.Data["tls.key"] = crt, key
+	require.NoError(t, central.Update(ctx, &source))
+	require.True(t, reconciler.ensureTLSSecretAndCreatePEMIfNeeded(ctx, manager, zap.S()).IsOK())
+	renewed, err := central.GetSecret(ctx, kube.ObjectKey(manager.Namespace, pemName))
+	require.NoError(t, err)
+	renewedHash := string(renewed.Data[util.LatestHashSecretKey])
+	assert.NotEqual(t, firstHash, renewedHash)
+	assert.Equal(t, firstPEM.Data[firstHash], renewed.Data[firstHash])
+	assert.Equal(t, firstHash, string(renewed.Data[util.PreviousHashSecretKey]))
+
+	r.memberClustersMap["west"] = returning
+	reconciler, err = newAppDbMultiReconciler(ctx, central, manager, r.memberClustersMap, zap.S(), nil)
+	require.NoError(t, err)
+	status = reconciler.replicateTLSCAConfigMap(ctx, manager, zap.S())
+	require.True(t, status.IsOK(), status.Message())
+	status = reconciler.ensureTLSSecretAndCreatePEMIfNeeded(ctx, manager, zap.S())
+	require.True(t, status.IsOK(), status.Message())
+	remoteBundle := &corev1.ConfigMap{}
+	require.NoError(t, returning.Get(ctx, kube.ObjectKey(manager.Namespace, bundleBefore.Name), remoteBundle))
+	assert.Equal(t, bundleBefore.Data, remoteBundle.Data)
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), remoteBundle.Labels, "remote managed trust must be discoverable for cleanup")
+	assert.Empty(t, remoteBundle.OwnerReferences, "central ownership must not be copied to another cluster")
+	remotePEM := &corev1.Secret{}
+	require.NoError(t, returning.Get(ctx, kube.ObjectKey(manager.Namespace, pemName), remotePEM))
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(certs.AppDBManagedCertificateOwner(manager)), remotePEM.Labels,
+		"a member-cluster AppDB -pem copy has to carry the UID label the delete sweep matches")
+	assert.Empty(t, remotePEM.OwnerReferences, "a reference to an owner in another cluster makes Kubernetes delete the secret")
+	assert.Equal(t, renewedHash, string(remotePEM.Data[util.LatestHashSecretKey]), "returning clusters receive the renewed leaf")
+	assert.Equal(t, renewed.Data[renewedHash], remotePEM.Data[renewedHash])
+	assert.True(t, apiErrors.IsNotFound(returning.Get(ctx, kube.ObjectKey(manager.Namespace, source.Name), &corev1.Secret{})), "raw issued TLS secrets stay central")
+
+	member := reconciler.helper.getMemberCluster("west")
+	scaler := scalers.GetAppDBScaler(manager, member.Name, member.Index, reconciler.helper.memberClusters)
+	sts, err := construct.AppDbStatefulSet(*manager, nil, construct.AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		switch volume.Name {
+		case "secret-ca":
+			require.NotNil(t, volume.ConfigMap)
+			assert.Equal(t, "managed-om-db-managed-server-ca-bundle", volume.ConfigMap.Name)
+		case util.SecretVolumeName:
+			require.NotNil(t, volume.Secret)
+			assert.Equal(t, "managed-om-db-managed-cert-pem", volume.Secret.SecretName)
+		}
+	}
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, central, manager, opsManagerUserPassword))
+	ac, err := reconciler.buildAppDbAutomationConfig(ctx, manager, nil, "", "west", zap.S())
+	require.NoError(t, err)
+	require.NotEmpty(t, ac.Processes)
+	for _, process := range ac.Processes {
+		assert.Equal(t, "/var/lib/mongodb-automation/secrets/certs/"+renewedHash, process.Args26.Get("net.tls.certificateKeyFile").String())
+	}
+	require.NotNil(t, ac.TLSConfig)
+	bundleHash := bundleAfter.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, bundleHash)
+	assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, bundleHash), ac.TLSConfig.CAFilePath,
+		"the AppDB CA file must follow the published bundle hash so a widened or rotated bundle takes effect")
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
+	assert.Empty(t, listManagedCertificateObjects(t, ctx, kubernetesClient.NewClient(returning)))
+}
+
+func TestAppDBManagedMultiClusterOpsManagerTrust(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	manager.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+	r.memberClustersMap["east"] = central
+	source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: manager.GetOpsManagerCA(), Namespace: manager.Namespace, UID: types.UID("managed-om-bundle"),
+		OwnerReferences: kube.BaseOwnerReference(manager),
+	}, Data: map[string]string{"mms-ca.crt": "OM CA"}}
+	require.NoError(t, central.Create(ctx, source))
+	reconciler, err := newAppDbMultiReconciler(ctx, central, manager, r.memberClustersMap, zap.S(), nil)
+	require.NoError(t, err)
+	vars := &env.PodEnvVars{ProjectID: "appdb-project", SSLProjectConfig: env.SSLProjectConfig{SSLMMSCAConfigMap: source.Name, SSLRequireValidMMSServerCertificates: true}}
+	status := reconciler.replicateSSLMMSCAConfigMap(ctx, manager, vars, zap.S())
+	require.True(t, status.IsOK(), status.Message())
+	retained, err := central.GetConfigMap(ctx, client.ObjectKeyFromObject(source))
+	require.NoError(t, err)
+	assert.Equal(t, source.OwnerReferences, retained.OwnerReferences)
+	assert.Equal(t, source.ResourceVersion, retained.ResourceVersion, "AppDB must not rewrite its central OM trust source")
+	remote := kubernetesClient.NewClient(r.memberClustersMap["west"])
+	copy, err := remote.GetConfigMap(ctx, client.ObjectKeyFromObject(source))
+	require.NoError(t, err)
+	assert.Equal(t, source.Data, copy.Data)
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), copy.Labels, "AppDB-only member clusters need the UID label the certificate sweep matches")
+	assert.Empty(t, copy.OwnerReferences)
+	require.NoError(t, deleteManagedCertificateObjectsInCluster(ctx, remote, "west", certs.NewServerCertificateOwner(manager, manager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{NamingBase: manager.Name + "-managed-om"}), zap.S()))
+	err = remote.Get(ctx, client.ObjectKeyFromObject(source), &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "the certificate sweep must remove replicated OM trust")
+}
 
 func TestAppDB_MultiCluster(t *testing.T) {
 	ctx := context.Background()
@@ -2235,4 +2397,46 @@ func TestReconcileAppDBBlockNonEmptyClusterSpecItemRemovalIntegration(t *testing
 			require.Equal(t, tc.wantMessage, opsManager.Status.AppDbStatus.Message)
 		})
 	}
+}
+
+// TestManagedAppDBCABundleHashMultiCluster checks that a multi-cluster managed AppDB reports the
+// published CA bundle hash, and that the internal and the referenced (external) reconcilers read the
+// same bundle because the reference carries the internal AppDB's name.
+func TestManagedAppDBCABundleHashMultiCluster(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	bundleName := certs.ManagedServerCABundleConfigMapName(manager.Spec.AppDB.Name())
+	require.NoError(t, central.CreateConfigMap(ctx, configmap.Builder().
+		SetName(bundleName).
+		SetNamespace(manager.Namespace).
+		SetData(map[string]string{util.LatestHashSecretKey: "bundle-hash"}).
+		Build()))
+
+	internal, err := newAppDbMultiReconciler(ctx, central, manager, r.memberClustersMap, zap.S(), nil)
+	require.NoError(t, err)
+	internalHash, err := internal.managedAppDBCABundleHash(ctx, manager)
+	require.NoError(t, err)
+	assert.Equal(t, "bundle-hash", internalHash)
+
+	caFilePath, err := internal.appDBCAFilePath(ctx, manager)
+	require.NoError(t, err)
+	assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, "bundle-hash"), caFilePath,
+		"the AppDB must read the bundle through its hash-keyed file so a rotation takes effect")
+
+	externalDB := validExternalAppDBMongoDBMultiClusterWithTLS(false, "")
+	externalDB.Name = manager.Spec.AppDB.Name()
+	externalDB.Namespace = manager.Namespace
+	externalDB.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	require.NoError(t, central.Create(ctx, externalDB))
+	externalOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: externalDB.Name,
+		Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+	})
+	externalOm.Namespace = manager.Namespace
+	external := r.createNewExternalAppDBReconciler(zap.S())
+	refObject, err := external.fetchExternalAppDBRefObject(ctx, externalOm.Spec.ExternalAppDBRef)
+	require.NoError(t, err)
+	externalHash, err := external.managedAppDBCABundleHash(ctx, externalOm, refObject)
+	require.NoError(t, err)
+	assert.Equal(t, internalHash, externalHash, "both reconcilers must report the same hash for the same AppDB")
 }

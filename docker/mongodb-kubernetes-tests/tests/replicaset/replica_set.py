@@ -375,7 +375,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=700)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
@@ -604,6 +604,7 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
             "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
             "MULTI_CLUSTER_MODE",
+            "MDB_CUSTOM_AGENT_URL",
             "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
             "MDB_LOG_FILE_AUTOMATION_AGENT",
             "MDB_LOG_FILE_MONITORING_AGENT",

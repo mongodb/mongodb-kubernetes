@@ -333,6 +333,10 @@ const (
 
 	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
+	// TLSClusterCaMountPath is where the operator-owned client-category CA bundle
+	// ConfigMap is mounted in managed-certificate mode. Wired to mongod's
+	// net.tls.clusterCAFile.
+	TLSClusterCaMountPath = PvcMmsHomeMountPath + "/tls/clusterca"
 
 	// Annotation keys used by the operator
 	LastAchievedSpec                = "mongodb.com/v1.lastSuccessfulConfiguration"
@@ -347,6 +351,19 @@ const (
 	// MigrateToolVersionAnnotation records the version of the import tool that generated the resource.
 	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
 	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
+
+	// PrunePreviousCAAnnotation asks the operator to drop the CAs that it retains in the managed CA
+	// trust bundles from previously published bundles after a CA rotation. Accepted values are "true"
+	// (both categories), "server" or "client" (only that category); any other value is ignored.
+	// On a MongoDBOpsManager the accepted values are "true" or a comma-separated list of
+	// "om", "appdb", "backup".
+	PrunePreviousCAAnnotation = "mongodb.com/prune-previous-ca"
+
+	// CABundlePublishedAtAnnotation records, as RFC3339 in UTC, when the latest contents of an
+	// operator-managed CA trust bundle were published to its ConfigMap. Consumers that read the
+	// bundle from a fixed file path in a mounted ConfigMap wait until the kubelet has had time to
+	// propagate the update before they act on the new bundle.
+	CABundlePublishedAtAnnotation = "mongodb.com/ca-bundle-published-at"
 
 	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
 	// the reconciler: it returns Result{} + nil without mutating any owned objects.
@@ -398,6 +415,11 @@ const (
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 
+	// The MongoDB finalizers keep their CR until cleanup finishes. Without them,
+	// a delete can race a reconcile that re-adds the deployment and leaves SCRAM auth behind.
+	MongoDBFinalizer             = "mongodb.com/v1.mongoDBRemovalFinalizer"
+	MongoDBMultiClusterFinalizer = "mongodb.com/v1.mongoDBMultiClusterRemovalFinalizer"
+
 	OpsManagerLicenseFinalizer = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
 )
 
@@ -405,6 +427,18 @@ const (
 	MongoDBResourceOwnerLabel             = "mongodb.com/v1.mongodbResourceOwner"
 	MongoDBOpsManagerResourceOwnerLabel   = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
 	MongoDBMultiClusterResourceOwnerLabel = "mongodbmulticluster"
+
+	// ManagedCertificateOwnerUIDLabel is the label operator-managed certificates put on the objects
+	// they create, holding the UID of the resource they were created for.
+	ManagedCertificateOwnerUIDLabel = "mongodb.com/v1.managedCertificateOwnerUID"
+)
+
+const (
+	// ManagedCertificateAllowedIssuersEnv is used to configure the list of issuers that can be used as issuerRef
+	// in managed certificate feature. The value is a comma-separated list of "Kind/name"
+	// entries (Issuer or ClusterIssuer). An entry without a kind means Issuer. Empty means any
+	// issuer is allowed. The helm chart sets it from security.managedCertificate.allowedIssuers helm field.
+	ManagedCertificateAllowedIssuersEnv = "MDB_MANAGED_CERTIFICATE_ALLOWED_ISSUERS"
 )
 
 var mongoDBOwnerLabels = []string{

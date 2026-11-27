@@ -3,6 +3,8 @@ package multicluster
 import (
 	"fmt"
 
+	"go.uber.org/zap"
+
 	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -12,6 +14,19 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
+
+// MultiClusterAgentSettingsSource returns the agent settings source of a multi-cluster member: the spec-level
+// StatefulSetConfiguration merged with the cluster-level override, as WithStsOverride merges it.
+func MultiClusterAgentSettingsSource(mdbm mdbmultiv1.MongoDBMultiCluster, clusterOverride *appsv1.StatefulSetSpec) construct.AgentSettingsSource {
+	stsSpec := appsv1.StatefulSetSpec{}
+	if mdbm.Spec.StatefulSetConfiguration != nil {
+		stsSpec = mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec
+	}
+	if clusterOverride != nil {
+		stsSpec = merge.StatefulSetSpecs(stsSpec, *clusterOverride)
+	}
+	return construct.AgentSettingsSource{Config: &mdbm.Spec.Agent, Override: &stsSpec}
+}
 
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 	return func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
@@ -32,6 +47,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			DownloadBase:                  mdbm.Spec.GetDownloadBase(),
 			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
@@ -62,8 +78,7 @@ func WithMemberCount(memberCount int) func(options *construct.DatabaseStatefulSe
 
 func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
-		finalSpec := merge.StatefulSetSpecs(*options.StatefulSetSpecOverride, *stsOverride)
-		options.StatefulSetSpecOverride = &finalSpec
+		options.StatefulSetSpecOverride = new(merge.StatefulSetSpecs(*options.StatefulSetSpecOverride, *stsOverride))
 	}
 }
 
@@ -78,25 +93,11 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdbm)
-	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
+}
 
-	if len(stsOptions.Annotations) > 0 {
-		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
-	}
-
-	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
-	}
-
-	if len(stsOptions.StsLabels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
-	}
-
-	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
-	}
-
-	return dbSts
+func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
 }

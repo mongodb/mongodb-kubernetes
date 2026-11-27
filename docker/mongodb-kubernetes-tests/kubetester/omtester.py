@@ -9,6 +9,7 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pymongo
@@ -202,7 +203,12 @@ class OMTester(object):
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
-        cluster_id = self.get_backup_cluster_id(expected_config_count, is_sharded_cluster)
+        configs = self.api_read_backup_configs()
+        if expected_count == 0 and not configs:
+            # A terminated backup removes its config, so no snapshot can exist.
+            print(f"No backup config in project {self.context.group_name}: nothing to wait for")
+            return
+        cluster_id = self.get_backup_cluster_id(expected_config_count, is_sharded_cluster, configs=configs)
 
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
@@ -217,12 +223,13 @@ class OMTester(object):
                 span = trace.get_current_span()
                 span.set_attribute(key="mck.snapshot_time", value=time.time() - start_time)
                 completed_snapshots = [s for s in snapshots if s.get("complete", False)]
-                latest_snapshot = max(completed_snapshots, key=lambda s: s["created"]["date"])
-                snapshot_timestamp = latest_snapshot["created"]["date"]
+                if completed_snapshots:
+                    latest_snapshot = max(completed_snapshots, key=lambda s: s["created"]["date"])
+                    snapshot_timestamp = latest_snapshot["created"]["date"]
+                    self.set_latest_backup_completion_time(
+                        time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
+                    )
                 print(f"Current Backup Snapshots: {snapshots}")
-                self.set_latest_backup_completion_time(
-                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
-                )
                 return
             time.sleep(3)
             timeout -= 3
@@ -261,8 +268,14 @@ class OMTester(object):
             f"project {self.context.group_name} "
         )
 
-    def get_backup_cluster_id(self, expected_config_count: int = 1, is_sharded_cluster: bool = False) -> str:
-        configs = self.api_read_backup_configs()
+    def get_backup_cluster_id(
+        self,
+        expected_config_count: int = 1,
+        is_sharded_cluster: bool = False,
+        configs: Optional[List] = None,
+    ) -> str:
+        if configs is None:
+            configs = self.api_read_backup_configs()
 
         assert len(configs) == expected_config_count
         if not is_sharded_cluster:
@@ -664,20 +677,20 @@ class OMTester(object):
     # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
     def wait_until_backup_deactivated(self, timeout=30, is_sharded_cluster=False, expected_config_count=1):
         def wait_until_backup_deactivated():
-            found_backup = False
+            configs = self.api_read_backup_configs()
+            # Backup does not exist, which we correlate with backup is deactivated
+            if not configs:
+                return True
             cluster_id = self.get_backup_cluster_id(
                 is_sharded_cluster=is_sharded_cluster,
                 expected_config_count=expected_config_count,
+                configs=configs,
             )
-            for config in self.api_read_backup_configs():
+            for config in configs:
                 if config["clusterId"] == cluster_id:
-                    found_backup = True
                     # Backup has been deactivated
                     if config["statusName"] in ["INACTIVE", "TERMINATING", "STOPPED"]:
                         return True
-                # Backup does not exist, which we correlate with backup is deactivated
-                if not found_backup:
-                    return True
             return False
 
         run_periodically(fn=wait_until_backup_deactivated, timeout=timeout)
@@ -842,28 +855,32 @@ class OMTester(object):
             },
         }
 
-    def query_backup(self, db_name: str, collection_name: str, timeout: int):
+    def query_backup(
+        self,
+        db_name: str,
+        collection_name: str,
+        timeout: int,
+        *,
+        ca_pem: str | None = None,
+        replica_set_name: str = "mdb-four-two",
+        server_selection_timeout_ms: int = 300000,
+    ):
         """Query the first backup snapshot and return all records from specified collection."""
-        qb = OMQueryableBackup(self.context.base_url, self.context.project_id)
+        qb = OMQueryableBackup(self.context.base_url, self.context.project_id, replica_set_name)
         connParams = qb.connection_params(timeout)
-
-        caPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
-        caPem.write(connParams.ca_pem)
-        caPem.flush()
-
-        clientPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
-        clientPem.write(connParams.client_pem)
-        clientPem.flush()
-
-        dbClient: pymongo.database.Database = pymongo.MongoClient(
-            host=connParams.host,
-            tls=True,
-            tlsCAFile=caPem.name,
-            tlsCertificateKeyFile=clientPem.name,
-            serverSelectionTimeoutMs=300000,
-        )[db_name]
-        collection = dbClient[collection_name]
-        return list(collection.find())
+        with tempfile.TemporaryDirectory() as directory:
+            ca_file = Path(directory) / "ca.pem"
+            ca_file.write_text(connParams.ca_pem if ca_pem is None else ca_pem)
+            client_file = Path(directory) / "client.pem"
+            client_file.write_text(connParams.client_pem)
+            with pymongo.MongoClient(
+                host=connParams.host,
+                tls=True,
+                tlsCAFile=str(ca_file),
+                tlsCertificateKeyFile=str(client_file),
+                serverSelectionTimeoutMS=server_selection_timeout_ms,
+            ) as client:
+                return list(client[db_name][collection_name].find())
 
     def api_get_preferred_hostnames(self):
         return self.om_request("get", f"/group/v2/info/{self.context.project_id}", agent_endpoint=True).json()[
@@ -882,7 +899,7 @@ class OMTester(object):
         """
         self.om_request("put", "/versionManifest", json_object=manifest)
 
-    def api_get_automation_status(self) -> dict[str, str]:
+    def api_get_automation_status(self) -> dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
 
     def api_create_agent_api_key(self, description: str = "agent api key created by OMTester") -> str:
@@ -977,6 +994,21 @@ class OMTester(object):
 
         self.api_put_automation_config(config)
         self.wait_agents_ready()
+
+    def wait_for_processes_to_apply_config(self, version: int, names: set[str], timeout: int):
+        assert names, "no processes to check"
+
+        def applied() -> tuple[bool, str]:
+            status = self.api_get_automation_status()
+            versions = {p["name"]: p.get("lastGoalVersionAchieved") for p in status.get("processes", [])}
+            behind = {name: versions.get(name) for name in names if (versions.get(name) or -1) < version}
+            goal = status.get("goalVersion")
+            return (
+                not behind and versions.keys() == names and (goal or -1) >= version,
+                f"target={version}, goal={goal}, missing/behind={behind}, unexpected={versions.keys() - names}",
+            )
+
+        run_periodically(applied, timeout=timeout, sleep_time=5, msg=f"all processes to apply config {version}")
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

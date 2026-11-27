@@ -6,8 +6,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,14 +48,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -454,6 +460,28 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
+	if security.IsManagedCertificateEnabled() {
+		mc := security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == string(watch.Secret) {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, objectToReconcile.Namespace, resourceType, objectToReconcile)
+		}
+		for _, cfg := range []*mdbv1.CertificateConfig{mc.Server, mc.Client} {
+			if cfg == nil {
+				continue
+			}
+			if cfg.CA != nil {
+				registerCA(*cfg.CA)
+			}
+			for _, ref := range cfg.AdditionalTrustedCAs {
+				registerCA(ref)
+			}
+		}
+	}
+
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
 		var secretNames []string
 		if getInternalAuthSecretNames != nil {
@@ -464,6 +492,22 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		for _, secretName := range secretNames {
 			r.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, objectToReconcile.Namespace, watch.Secret, objectToReconcile)
 		}
+	}
+}
+
+// watchUserClientCertificateSecrets watches the client certificate secrets that the operator issues
+// for the MongoDBUsers of res. The MongoDBUser owns them, so without the watch a user certificate
+// moving to the new CA would not reconcile res to retry a refused prune of the previous CA.
+// It must run after SetupCommonWatchers, which removes the watches of res.
+func (r *ReconcileCommonController) watchUserClientCertificateSecrets(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) {
+	secretNames, err := certs.UserClientCertificateSecretNames(ctx, r.client, res)
+	if err != nil {
+		log.Warnf("Failed to watch the client certificate secrets of the MongoDBUsers: %s", err)
+		return
+	}
+	objectKey := kube.ObjectKey(res.GetNamespace(), res.GetName())
+	for _, secretName := range secretNames {
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, res.GetNamespace(), watch.Secret, objectKey)
 	}
 }
 
@@ -483,6 +527,59 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	resource.SetWarnings([]status.Warning{})
 
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj client.Object, finalizer string, log *zap.SugaredLogger) error {
+	if controllerutil.ContainsFinalizer(obj, finalizer) {
+		return nil
+	}
+	// We use Patch to only add the finalizer. A full Update drops zero-valued
+	// fields such as members=0. The optimistic lock makes a concurrent
+	// metadata write fail the patch instead of replacing its finalizer list.
+	base := obj.DeepCopyObject().(client.Object)
+	patched := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(patched, finalizer)
+	if err := r.client.Patch(ctx, patched, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return xerrors.Errorf("failed to add finalizer %s: %w", finalizer, err)
+	}
+	obj.SetFinalizers(patched.GetFinalizers())
+	obj.SetResourceVersion(patched.GetResourceVersion())
+	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
+	return nil
+}
+
+// finalize runs cleanup and releases the finalizer only after cleanup succeeds.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
+func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, deleter Deleter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := deleter.OnDelete(ctx, obj, log); err != nil {
+		return reconcile.Result{}, err
+	}
+	base := obj.DeepCopyObject().(client.Object)
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := r.client.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to remove finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Removed finalizer %s from %s", finalizer, obj.GetName())
+	return reconcile.Result{}, nil
+}
+
+// removeFulfilledPruneAnnotation removes the prune-previous-ca annotation once the operator has
+// applied it. The CA bundles are published before this runs, so a reconcile interrupted between the
+// two steps just finds nothing left to prune and removes the annotation next time.
+func (r *ReconcileCommonController) removeFulfilledPruneAnnotation(ctx context.Context, resource client.Object, pruneApplied bool) workflow.Status {
+	if !pruneApplied {
+		return workflow.OK()
+	}
+	if err := annotations.RemoveAnnotation(ctx, resource, util.PrunePreviousCAAnnotation, r.client); err != nil {
+		return workflow.Failed(err)
+	}
+	return workflow.OK()
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.
@@ -869,6 +966,14 @@ func formatTooManyVotingMembersError(rsName string, total int, acVoting []voting
 func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
 	secretName := opts.InternalClusterSecretName
 
+	// The clusterfile is a client certificate: a member presents it when it connects to the other
+	// members, and they recognise it by its subject, not by a hostname. The one the operator issues
+	// therefore has no hostnames, so it must not be checked for them. A clusterfile the customer brings
+	// is still checked the way it always was.
+	if configurator.GetDbCommonSpec().GetSecurity().IsManagedCertificateEnabled() {
+		opts = opts.WithoutHostnames()
+	}
+
 	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), secretName, opts, log)
 	if err != nil {
 		return xerrors.Errorf("the secret object '%s' does not contain all the certificates needed: %w", secretName, err)
@@ -905,20 +1010,6 @@ func validateMongoDBResource(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Co
 		return status
 	}
 
-	return workflow.OK()
-}
-
-func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
-	omVersionString := conn.OpsManagerVersion()
-	if !omVersionString.IsCloudManager() {
-		omVersion, err := omVersionString.Semver()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
-		}
-		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
-			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
-		}
-	}
 	return workflow.OK()
 }
 
@@ -1182,7 +1273,11 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
+		// Only a deployment with operator-managed certificates gets an owner and labels on its secrets:
+		// they decide what the cleanup on deletion removes, and a deployment that brings its own
+		// certificates keeps the behaviour it had.
+		ownerReferences, ownerLabels := managedCertOwnership(security, configurator.GetOwnerReferences(), configurator)
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), ownerReferences, ownerLabels, log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -1202,6 +1297,17 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 	}
 
 	return workflow.OK()
+}
+
+// managedCertOwnership returns the owner and the labels to put on the secrets the operator writes
+// itself for a resource (the -pem secrets), or nothing when the resource does not use
+// operator-managed certificates. The secrets cert-manager writes get their labels from the
+// Certificate's secretTemplate and their owner from ensureIssuedSecretsAreOwned.
+func managedCertOwnership(sec *mdbv1.Security, ownerReferences []metav1.OwnerReference, owner interface{ GetUID() types.UID }) ([]metav1.OwnerReference, map[string]string) {
+	if sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil, nil
+	}
+	return ownerReferences, certs.ManagedCertificateOwnerLabels(owner)
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
@@ -1260,6 +1366,63 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
 
 	return errs
+}
+
+// deleteManagedCertificateObjects removes what operator-managed certificates created for a resource
+// from the cluster the operator runs in. The delete handlers call it last, after the Ops Manager
+// cleanup: it removes the secrets the pods mount, and the pods have to stay up while Ops Manager is
+// cleaned up. It catches a secret cert-manager wrote after its Certificate was deleted, which nothing
+// else removes.
+func (r *ReconcileCommonController) deleteManagedCertificateObjects(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	return deleteManagedCertificateObjectsInCluster(ctx, r.client, multicluster.LegacyCentralClusterName, res, log)
+}
+
+// deleteManagedCertificateObjectsInCluster removes the secrets and ConfigMaps operator-managed
+// certificates created for a resource in one cluster. It finds them by the labels the feature puts on
+// everything it creates, which point at the resource by its UID: the cleanup can still be running when
+// a new resource with the same name is created, and what was created for the new one must stay.
+func deleteManagedCertificateObjectsInCluster(ctx context.Context, c kubernetesClient.Client, clusterName string, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil
+	}
+	if res.GetUID() == "" {
+		// Nothing can be found by the UID of a resource that has none.
+		return nil
+	}
+
+	// List and delete one by one rather than delete them all in one call: the operator's role in the
+	// cluster it runs in does not allow deleting a whole collection.
+	listOptions := []client.ListOption{
+		client.InNamespace(res.GetNamespace()),
+		client.MatchingLabels(certs.ManagedCertificateOwnerLabels(res)),
+	}
+	secrets := corev1.SecretList{}
+	configMaps := corev1.ConfigMapList{}
+	var objects []client.Object
+	if err := c.List(ctx, &secrets, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate secrets of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range secrets.Items {
+		objects = append(objects, &secrets.Items[i])
+	}
+	if err := c.List(ctx, &configMaps, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate ConfigMaps of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range configMaps.Items {
+		objects = append(objects, &configMaps.Items[i])
+	}
+
+	var errs error
+	for _, obj := range objects {
+		if err := c.Delete(ctx, obj); err != nil && !apiErrors.IsNotFound(err) {
+			errs = errors.Join(errs, xerrors.Errorf("failed to delete %s in cluster %s: %w", obj.GetName(), clusterName, err))
+		}
+	}
+	if errs != nil {
+		return errs
+	}
+	log.Infof("Removed the managed certificate objects of %s in cluster %s", res.GetName(), clusterName)
+	return nil
 }
 
 // deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
@@ -1478,13 +1641,171 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 	return exists
 }
 
+// managedCABundleHashChanged reports whether the desired managed CA bundle hashes differ from the
+// annotations on the current pod template. A managed deployment always has a server hash; comparing
+// only when there is a desired hash keeps unmanaged TLS deployments out of this ordering.
+func managedCABundleHashChanged(sts appsv1.StatefulSet, serverHash, clientHash string) bool {
+	if serverHash == "" && clientHash == "" {
+		return false
+	}
+	annotations := sts.Spec.Template.Annotations
+	return annotations[construct.ManagedServerCABundleHashAnnotation] != serverHash ||
+		annotations[construct.ManagedClientCABundleHashAnnotation] != clientHash
+}
+
+// A legacy pod cannot see the new filenames until it mounts the managed Secrets. An AppDB
+// released for handover must likewise switch from headless agents before OM is configured.
+func managedCABundleChangeOnManagedStatefulSet(sts appsv1.StatefulSet, serverHash, clientHash string) bool {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString || !managedCABundleHashChanged(sts, serverHash, clientHash) {
+		return false
+	}
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName && volume.Secret != nil {
+			return strings.HasSuffix(volume.Secret.SecretName, "-managed-cert"+certs.OperatorGeneratedCertSuffix)
+		}
+	}
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == tls.ConfigMapVolumeCAName && volume.ConfigMap != nil {
+			return strings.HasSuffix(volume.ConfigMap.Name, "-managed-server-ca-bundle")
+		}
+	}
+	return sts.Spec.Template.Annotations[construct.ManagedServerCABundleHashAnnotation] != ""
+}
+
+func isLegacyTLSAdoption(previous *mdbv1.MongoDbSpec, current *mdbv1.Security) bool {
+	return previous != nil && mdbv1.IsMigratingToManagedCertificate(previous.GetSecurity(), current)
+}
+
+// isUnfinishedMigrationRollback reports whether the customer removed managedCertificate (from resource spec) before the
+// migration from legacy TLS to managed certificates finished. That is the case when all of these are true:
+//   - the spec asks for legacy TLS again: TLS is enabled and managedCertificate is not set,
+//   - the deployment last reached Running with legacy TLS, so the migration never finished,
+//   - the StatefulSet still mounts the managed certificates, so the migration had already started.
+//
+// The automation config is then updated before the pods, because a restarted pod only has the
+// legacy files. The pods that haven't restarted yet find the legacy files in their managed -pem
+// secrets, where they were copied at the start of the migration.
+func isUnfinishedMigrationRollback(lastAchieved, current *mdbv1.Security, sts appsv1.StatefulSet) bool {
+	if !current.IsTLSEnabled() || current.IsManagedCertificateEnabled() {
+		return false
+	}
+	if !lastAchieved.IsTLSEnabled() || lastAchieved.IsManagedCertificateEnabled() {
+		return false
+	}
+	return mountsManagedCertificates(sts)
+}
+
+// mountsManagedCertificates reports whether the StatefulSet's pods mount the operator-managed
+// member certificate.
+func mountsManagedCertificates(sts appsv1.StatefulSet) bool {
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName && volume.Secret != nil {
+			return strings.HasSuffix(volume.Secret.SecretName, "-managed-cert"+certs.OperatorGeneratedCertSuffix)
+		}
+	}
+	return false
+}
+
+// Old agents may never converge on a changed CA. Publish its path, roll the pods, then wait for the replacement agents.
+func reconcileDatabaseRollout(publishFirst, managedCAChanged bool, publish func(bool) workflow.Status, roll func() workflow.Status) workflow.Status {
+	if managedCAChanged {
+		if status := publish(false); !status.IsOK() {
+			return status
+		}
+		publishFirst = false
+	}
+	return workflow.RunInGivenOrder(publishFirst, func() workflow.Status { return publish(true) }, roll)
+}
+
+// managedCABundleHashChangeRequiresAutomationConfigFirst reports whether the StatefulSet rendered
+// by configFunc needs its automation config published before its pod template is replaced because
+// the effective managed CA bundle changed. It returns false when the StatefulSet does not exist.
+func managedCABundleHashChangeRequiresAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions) (bool, error) {
+	if opts.ManagedServerCABundleHash == "" && opts.ManagedClientCABundleHash == "" {
+		return false, nil
+	}
+	currentSts, err := getter.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName()))
+	if apiErrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return managedCABundleChangeOnManagedStatefulSet(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash), nil
+}
+
+// managedCABundlePodsRolled reports whether every pod of the StatefulSet already carries the desired
+// managed CA bundle hashes. A running member keeps the TLS client/trust state it built with the
+// bundle it loaded, so a pod that has not been replaced still has the previous bundle. This is the
+// gate that keeps a leaf re-issue from running ahead of a rollout, including on OnDelete
+// StatefulSets and on member clusters that are currently unreachable.
+func managedCABundlePodsRolled(ctx context.Context, getter kubernetesClient.Client, namespace, stsName, serverHash, clientHash string) (bool, error) {
+	if serverHash == "" && clientHash == "" {
+		return true, nil
+	}
+
+	sts, err := getter.GetStatefulSet(ctx, kube.ObjectKey(namespace, stsName))
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if managedCABundleHashChanged(sts, serverHash, clientHash) {
+		// The StatefulSet itself has not been updated yet. This covers a declared member cluster
+		// the reconcile skipped, even when its API server is still reachable.
+		return false, nil
+	}
+
+	// RollingUpdate StatefulSets are normally covered by the StatefulSet status checks in the
+	// reconcile. Check the status here too: a declared member cluster the reconcile skipped must not
+	// release the leaf re-issue while its pods are still being replaced.
+	if sts.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
+		replicas := int32(0)
+		if sts.Spec.Replicas != nil {
+			replicas = *sts.Spec.Replicas
+		}
+		if sts.Status.ObservedGeneration != sts.Generation ||
+			sts.Status.UpdatedReplicas != replicas ||
+			sts.Status.ReadyReplicas != replicas {
+			return false, nil
+		}
+		return true, nil
+	}
+
+	replicas := 0
+	if sts.Spec.Replicas != nil {
+		replicas = int(*sts.Spec.Replicas)
+	}
+	for i := 0; i < replicas; i++ {
+		pod, err := getter.GetPod(ctx, kube.ObjectKey(namespace, fmt.Sprintf("%s-%d", stsName, i)))
+		if err != nil {
+			if apiErrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if pod.DeletionTimestamp != nil || pod.Annotations[construct.ManagedServerCABundleHashAnnotation] != serverHash {
+			return false, nil
+		}
+		if pod.Annotations[construct.ManagedClientCABundleHashAnnotation] != clientHash || !slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+		}) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // publishAutomationConfigFirst will check if the Published State of the StatefulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
-	opts := configFunc(mdb)
-
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, opts construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
+	if isLegacyTLSAdoption(lastSpec, mdb.GetSecurity()) {
+		return false
+	}
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
@@ -1514,7 +1835,10 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
+	// Skipped in managed-certificate mode: tls.CA is always empty there because the operator owns
+	// the CA, and during a migration the existing pods still mount the legacy CA. Publishing first
+	// would name the managed files before the pods mount them.
+	if !mdb.Spec.Security.IsManagedCertificateEnabled() && mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
 		return true
 
@@ -1539,6 +1863,11 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		if mdb.Spec.IsInChangeVersion(lastSpec) {
 			return true
 		}
+	}
+
+	if managedCABundleChangeOnManagedStatefulSet(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash) {
+		log.Debug("Managed CA bundle changed. automationConfig needs to be updated before the StatefulSet")
+		return true
 	}
 
 	return false
@@ -1580,6 +1909,45 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
+// managedDatabaseCABundleHashes returns the hashes of the operator-managed CA bundles the database
+// agents mount: the server bundle always, the client bundle only when the deployment mounts it.
+// Both are empty when managed certificates are off.
+func managedDatabaseCABundleHashes(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
+	if !security.IsManagedCertificateEnabled() {
+		return "", "", nil
+	}
+
+	serverCAHash, clientCAHash, err := certs.ReadManagedCABundleHashes(ctx, getter, resourceName, namespace, security.RequiresX509ClientCerts())
+	if err != nil {
+		return "", "", xerrors.Errorf("failed to read the operator-managed CA bundle hashes: %w", err)
+	}
+	return serverCAHash, clientCAHash, nil
+}
+
+// databaseCAFilePaths returns the CA file paths for the automation config: the server CA
+// (net.tls.CAFile) and the client CA (net.tls.clusterCAFile, empty unless the managed
+// deployment has clientAuth certs).
+func databaseCAFilePaths(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
+	serverCAHash, clientCAHash, err := managedDatabaseCABundleHashes(ctx, getter, security, resourceName, namespace)
+	if err != nil {
+		return "", "", err
+	}
+
+	caFilePath, clusterCAFilePath := databaseCAPathsForHashes(security, serverCAHash, clientCAHash)
+	return caFilePath, clusterCAFilePath, nil
+}
+
+func databaseCAPathsForHashes(security *mdbv1.Security, serverCAHash, clientCAHash string) (string, string) {
+	if !security.IsManagedCertificateEnabled() {
+		return security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)), ""
+	}
+	clusterCAFilePath := ""
+	if clientCAHash != "" {
+		clusterCAFilePath = path.Join(util.TLSClusterCaMountPath, clientCAHash)
+	}
+	return path.Join(util.TLSCaMountPath, serverCAHash), clusterCAFilePath
+}
+
 func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
 	processIds := map[string]int{}
 
@@ -1595,7 +1963,7 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath, clusterCAFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1608,7 +1976,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
-	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
+	d.ConfigureTLS(spec.GetSecurity(), caFilePath, clusterCAFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
@@ -1647,7 +2015,8 @@ func (r *ReconcileCommonController) ensureAgentSubjectDN(
 		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
 		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
-		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
+		ownerReferences, ownerLabels := managedCertOwnership(sec, certs.OwnerReferenceFor(sec, mdb, !mdb.Spec.IsMultiCluster()), mdb)
+		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), ownerReferences, ownerLabels, log); err != nil {
 			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),

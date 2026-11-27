@@ -40,7 +40,16 @@ const (
 
 // CreateOrUpdatePEMSecretWithPreviousCert creates a PEM secret from the original secretName.
 // Additionally, this method verifies if there already exists a PEM secret, and it will merge them to be able to keep the newest and the previous certificate.
-func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, certificateKey string, certificateValue string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecretWithPreviousCert(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	certificateKey string,
+	certificateValue string,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	podType certDestination,
+) error {
 	path, err := getVaultBasePath(secretClient, podType)
 	if err != nil {
 		return err
@@ -51,11 +60,19 @@ func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient s
 		return err
 	}
 
-	return CreateOrUpdatePEMSecret(ctx, secretClient, secretNamespacedName, secretData, ownerReferences, podType)
+	return CreateOrUpdatePEMSecret(ctx, secretClient, secretNamespacedName, secretData, ownerReferences, ownerLabels, podType)
 }
 
 // CreateOrUpdatePEMSecret creates a PEM secret from the original secretName.
-func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, secretData map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecret(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	secretData map[string]string,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	podType certDestination,
+) error {
 	operatorGeneratedSecret := getOperatorGeneratedSecret(secretNamespacedName)
 
 	path, err := getVaultBasePath(secretClient, podType)
@@ -67,7 +84,8 @@ func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretCli
 		SetName(operatorGeneratedSecret.Name).
 		SetNamespace(operatorGeneratedSecret.Namespace).
 		SetStringMapToData(secretData).
-		SetOwnerReferences(ownerReferences)
+		SetOwnerReferences(ownerReferences).
+		SetLabels(ownerLabels)
 
 	return secretClient.PutSecretIfChanged(ctx, secretBuilder.Build(), path)
 }
@@ -80,7 +98,7 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 
 	newData[util.LatestHashSecretKey] = newLatestHash
 
-	existingSecretData, err := secretClient.ReadSecret(ctx, operatorGeneratedSecret, basePath)
+	existingSecretData, err := readExistingPEMSecretData(ctx, secretClient, operatorGeneratedSecret, basePath)
 	if secret.SecretNotExist(err) {
 		// Case: creating the PEM secret the first time (example: enabling TLS)
 		return newData, nil
@@ -109,6 +127,167 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 	}
 
 	return newData, nil
+}
+
+// readExistingPEMSecretData reads the derived PEM Secret as raw bytes on Kubernetes backends so an
+// unchanged PEM can be compared byte-for-byte. String-based reads normalize a trailing newline; the
+// normalized value can differ from the exact PEM and rewrite an unchanged Secret.
+func readExistingPEMSecretData(ctx context.Context, secretClient secrets.SecretClient, name types.NamespacedName, basePath string) (map[string]string, error) {
+	if vault.IsVaultSecretBackend() {
+		return secretClient.ReadSecret(ctx, name, basePath)
+	}
+	data, err := secretClient.ReadBinarySecret(ctx, name, basePath)
+	if err != nil {
+		return nil, err
+	}
+	return secrets.DataToStringData(data), nil
+}
+
+// When a customer moves a resource from legacy TLS to operator-managed certificates, the pods get new
+// -pem secrets mounted. If those held only the new certificate, mongod would not start: the pods would
+// have the new files, but the automation config would still name the old paths for a while.
+//
+// To avoid that, each new managed -pem secret is created with the old certificate already in it. So
+// during the migration the pods have both the old and the new certificate, like during a rotation,
+// and the deployment stays up until it converges to Running.
+func SeedManagedPEMSecretsFromLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, stsName, resourceName string, lastAchieved, current *mdbv1.Security, log *zap.SugaredLogger) error {
+	pairs := []struct{ legacy, managed string }{
+		{lastAchieved.MemberCertificateSecretName(stsName), current.MemberCertificateSecretName(stsName)},
+		{lastAchieved.InternalClusterAuthSecretName(stsName), current.InternalClusterAuthSecretName(stsName)},
+		{lastAchieved.AgentClientCertificateSecretName(resourceName), current.AgentClientCertificateSecretName(resourceName)},
+	}
+	for _, p := range pairs {
+		if err := SeedManagedPEMSecretFromLegacy(ctx, secretClient, namespace, p.legacy, p.managed, nil, Database, nil, log); err != nil {
+			return xerrors.Errorf("failed to create the initial -pem secret %s with the legacy certificate from %s: %w", p.managed, p.legacy, err)
+		}
+	}
+	return nil
+}
+
+// SeedPEMValidator validates the exact legacy PEM before the seeder copies it.
+type SeedPEMValidator func(secretName, certificate string) error
+
+// SeedManagedPEMSecretFromLegacy creates the -pem secret of managedSecretName holding the current
+// certificate of legacySecretName's -pem secret. The names are the base TLS Secret names; the -pem
+// suffix is appended with the existing naming. It does nothing when the names are the same, when the
+// destination already exists, or when there is no legacy -pem secret to take the certificate from.
+//
+// A missing legacy source is a no-op only when no validator is provided.
+func SeedManagedPEMSecretFromLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, legacySecretName, managedSecretName string, ownerReferences []metav1.OwnerReference, podType certDestination, validate SeedPEMValidator, log *zap.SugaredLogger) error {
+	if legacySecretName == managedSecretName {
+		return nil
+	}
+	path, err := getVaultBasePath(secretClient, podType)
+	if err != nil {
+		return err
+	}
+	legacyPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, legacySecretName))
+	managedPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, managedSecretName))
+	readPEM := secretClient.ReadSecret
+	if podType != Database {
+		readPEM = func(ctx context.Context, name types.NamespacedName, path string) (map[string]string, error) {
+			return readExistingPEMSecretData(ctx, secretClient, name, path)
+		}
+	}
+
+	// nothing should be done if the managed -pem secret is found, return early
+	if _, err := readPEM(ctx, managedPEM, path); err == nil {
+		return nil
+	} else if !secret.SecretNotExist(err) {
+		return err
+	}
+
+	legacyData, err := readPEM(ctx, legacyPEM, path)
+	if secret.SecretNotExist(err) {
+		if validate != nil {
+			return xerrors.Errorf("%s does not exist", legacyPEM.Name)
+		}
+		return nil
+	} else if err != nil {
+		return err
+	}
+	legacyHash := currentHashOfPEMSecret(legacyData)
+	if validate != nil {
+		if legacyHash == "" || legacyData[legacyHash] == "" {
+			return xerrors.Errorf("%s has no certificate data under %q", legacyPEM.Name, legacyHash)
+		}
+		if err := validate(legacyPEM.Name, legacyData[legacyHash]); err != nil {
+			return err
+		}
+	} else if legacyHash == "" {
+		return nil
+	}
+
+	log.Infof("Moving to operator-managed certificates: keeping the current certificate of %s in %s", legacyPEM.Name, managedPEM.Name)
+	return CreateOrUpdatePEMSecret(ctx, secretClient, kube.ObjectKey(namespace, managedSecretName), map[string]string{
+		legacyHash:               legacyData[legacyHash],
+		util.LatestHashSecretKey: legacyHash,
+	}, ownerReferences, nil, podType)
+}
+
+// VerifyManagedPEMSecretsKeepLegacy makes sure that the -pem secrets the operator created for the
+// managed certificates still contain the legacy certificate before a rollback starts. This is needed
+// for the same reason the managed -pem secrets are seeded with the legacy certificate when a legacy
+// deployment is migrated to managed certificates: until a pod restarts, it still mounts the managed
+// -pem secret, but the automation config already names the legacy file. If a reissue of a managed
+// certificate pushed the legacy file out, the rollback is refused.
+func VerifyManagedPEMSecretsKeepLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, stsName, resourceName string, legacy *mdbv1.Security) error {
+	// The names the managed secrets have: certsSecretPrefix and managedCertificate can't be set
+	// together, and the prefix would win when the names are worked out.
+	managed := legacy.DeepCopy()
+	managed.CertificatesSecretsPrefix = ""
+	managed.ManagedCertificate = &mdbv1.ManagedCertificate{}
+
+	pairs := []struct{ legacy, managed string }{
+		{legacy.MemberCertificateSecretName(stsName), managed.MemberCertificateSecretName(stsName)},
+		{legacy.InternalClusterAuthSecretName(stsName), managed.InternalClusterAuthSecretName(stsName)},
+		{legacy.AgentClientCertificateSecretName(resourceName), managed.AgentClientCertificateSecretName(resourceName)},
+	}
+	path, err := getVaultBasePath(secretClient, Database)
+	if err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if p.legacy == p.managed {
+			continue
+		}
+		legacyData, err := secretClient.ReadSecret(ctx, getOperatorGeneratedSecret(kube.ObjectKey(namespace, p.legacy)), path)
+		if secret.SecretNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		legacyHash := currentHashOfPEMSecret(legacyData)
+		if legacyHash == "" {
+			continue
+		}
+
+		managedPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, p.managed))
+		managedData, err := secretClient.ReadSecret(ctx, managedPEM, path)
+		if secret.SecretNotExist(err) {
+			// no pod mounts it, so nothing can be missing
+			continue
+		} else if err != nil {
+			return err
+		}
+		if managedData[legacyHash] == "" {
+			return xerrors.Errorf("cannot go back to the legacy certificates safely: %s no longer has the legacy certificate of %s, so the pods that already use operator-managed certificates would not find the files the automation config names. This happens when cert-manager issued that certificate again after the migration started, for example after a renewal or a change that adds hostnames. Put managedCertificate back to finish the migration",
+				managedPEM.Name, p.legacy)
+		}
+	}
+	return nil
+}
+
+func currentHashOfPEMSecret(data map[string]string) string {
+	if hash, ok := data[util.LatestHashSecretKey]; ok {
+		return hash
+	}
+	if len(data) == 1 {
+		for hash := range data {
+			return hash
+		}
+	}
+	return ""
 }
 
 // getVaultBasePath returns the path to secrets in the vault
@@ -206,8 +385,8 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 		return err
 	}
 
-	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
-	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, Database)
+	secretHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secretData), log)
+	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, opts.OwnerLabels, Database)
 }
 
 // getPodNames returns the pod names based on the Cert Options provided.
@@ -220,6 +399,18 @@ func GetDNSNames(opts Options) (hostnames, podNames []string) {
 	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 }
 
+// GetExternalDNSNames returns the external per-member FQDNs (<pod>.<externalDomain>) for the
+// members covered this reconcile, or nil when no external domain is configured. The pod
+// hostnames are ordinal-deterministic, so we can list the real names instead of relying on a
+// "*." wildcard. This is the single-cluster form.
+func GetExternalDNSNames(opts Options) []string {
+	if opts.ExternalDomain == nil {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, opts.ExternalDomain)
+	return hostnames
+}
+
 // GetAdditionalCertDomainsForMember gets any additional domains that the
 // certificate for the given member of the stateful set should be signed for.
 func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []string) {
@@ -227,15 +418,23 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 	for _, certDomain := range opts.additionalCertificateDomains {
 		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
-	if len(opts.horizons) > 0 {
-		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
-		// of members in the replica set
-		for _, externalHost := range opts.horizons[member] {
-			// need to use the URL struct directly instead of url.Parse as
-			// Parse expects the URL to have a scheme.
-			hostURL := url.URL{Host: externalHost}
-			hostnames = append(hostnames, hostURL.Hostname())
-		}
+	// A certificate is built for every member the deployment still has, so during a scale-down there
+	// can be more members than horizons configured. The horizons of the member that is being removed
+	// are not read.
+	if member < len(opts.horizons) {
+		hostnames = append(hostnames, horizonHostnames(opts.horizons[member])...)
+	}
+	return hostnames
+}
+
+// horizonHostnames returns the hostnames of one member's horizon configuration, without their ports.
+func horizonHostnames(horizon mdbv1.MongoDBHorizonConfig) []string {
+	hostnames := make([]string, 0, len(horizon))
+	for _, externalHost := range horizon {
+		// need to use the URL struct directly instead of url.Parse as
+		// Parse expects the URL to have a scheme.
+		hostURL := url.URL{Host: externalHost}
+		hostnames = append(hostnames, hostURL.Hostname())
 	}
 	return hostnames
 }
@@ -299,14 +498,19 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+	ctx context.Context,
+	secretReadClient,
+	secretWriteClient secrets.SecretClient,
+	secret types.NamespacedName,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	log *zap.SugaredLogger,
+) error {
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
-	var databaseSecretPath string
-
 	if vault.IsVaultSecretBackend() {
-		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err
@@ -328,8 +532,8 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 		return err
 	}
 
-	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, secret.Namespace, secret.Name, databaseSecretPath, log)
-	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, []metav1.OwnerReference{}, Database)
+	secretHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secretData), log)
+	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, ownerReferences, ownerLabels, Database)
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
@@ -404,7 +608,7 @@ func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.Secre
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
-	err = CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), secretHash, data, []metav1.OwnerReference{}, podType)
+	err = CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), secretHash, data, []metav1.OwnerReference{}, nil, podType)
 	if err != nil {
 		return "", xerrors.Errorf("error creating hashed Secret: %w", err)
 	}

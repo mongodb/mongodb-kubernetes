@@ -23,7 +23,8 @@ def in_desired_state(
     intermediate_events: Tuple = (),
 ) -> bool:
     """Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
-    Optionally checks if the message matches the specified regexp expression"""
+    Optionally checks if the message matches the specified regexp expression, which is matched from
+    the start of the message, so a pattern for the middle of a message needs a leading ".*"."""
     if current_state is None:
         return False
 

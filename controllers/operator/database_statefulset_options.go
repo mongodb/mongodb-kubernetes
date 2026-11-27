@@ -37,6 +37,20 @@ func WithAgentCertPath(path string) func(options *construct.DatabaseStatefulSetO
 	}
 }
 
+// WithAgentCredentialHash sets the hash of the key the agent reads at startup, so rotating it rolls the pods.
+func WithAgentCredentialHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCredentialHash = hash
+	}
+}
+
+// WithVaultInjectedAgentAPIKey leaves out the Kubernetes key Secret volume when a Vault client injects the key.
+func WithVaultInjectedAgentAPIKey(injected bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.VaultInjectsAgentAPIKey = injected
+	}
+}
+
 // Replicas will set the given number of replicas when building a StatefulSet.
 func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
@@ -74,6 +88,20 @@ func AgentCertHash(hash string) func(options *construct.DatabaseStatefulSetOptio
 func InternalClusterHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.InternalClusterHash = hash
+	}
+}
+
+// ManagedServerCABundleHash sets the operator-managed server CA bundle hash the members trust.
+func ManagedServerCABundleHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ManagedServerCABundleHash = hash
+	}
+}
+
+// ManagedClientCABundleHash sets the operator-managed client CA bundle hash the members mount.
+func ManagedClientCABundleHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ManagedClientCABundleHash = hash
 	}
 }
 

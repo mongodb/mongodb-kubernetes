@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -258,7 +259,7 @@ func TestReplicaSetReconcile_ExportsEvenWhenLaterStepsFail(t *testing.T) {
 		Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, false, false),
 	})
 	recorder := &recordedMonitoringMapping{}
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, recorder)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, recorder, certs.CertManagerReadiness{})
 
 	checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
 

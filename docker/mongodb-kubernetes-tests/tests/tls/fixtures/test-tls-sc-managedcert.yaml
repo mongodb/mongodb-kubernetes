@@ -1,0 +1,27 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-sc-managedcert
+spec:
+  shardCount: 2
+  mongodsPerShardCount: 3
+  mongosCount: 1
+  configServerCount: 3
+  version: 8.0.3
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: true
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes:
+      - X509
+      internalCluster: X509

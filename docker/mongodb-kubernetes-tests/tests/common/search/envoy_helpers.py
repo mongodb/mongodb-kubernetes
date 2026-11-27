@@ -6,8 +6,14 @@ from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from tests import test_logger
 from tests.common.search import search_resource_names
+from tests.olm.olm_test_commons import get_release_json
 
 logger = test_logger.get_test_logger(__name__)
+
+
+def get_envoy_image() -> str:
+    """Envoy image for the test-managed proxy; release.json is the single source of truth for the version."""
+    return f"envoyproxy/envoy:{get_release_json()['search']['envoyVersion']}"
 
 
 class EnvoyProxy:
@@ -272,7 +278,7 @@ layered_runtime:
                         "containers": [
                             {
                                 "name": "envoy",
-                                "image": "envoyproxy/envoy:v1.37.11",
+                                "image": get_envoy_image(),
                                 "command": ["/usr/local/bin/envoy"],
                                 "args": ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"],
                                 "ports": [
