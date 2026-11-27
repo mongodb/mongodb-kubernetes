@@ -14,7 +14,16 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
 get_host_url() {
-  host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
+  # Parallel wt-ctl creates fight over the CLI's token file, so a failed lookup is tried again (EvgDomain.read does
+  # the same). A terminated host of the same name stays in the list for a while: only a live one counts, and the first
+  # of them, so that the ssh target is one address.
+  local host="" attempt
+  for attempt in 1 2 3; do
+    host=$(evergreen host list --json </dev/null |
+      jq -r --arg name "${EVG_HOST_NAME}" '[.[] | select(.name == $name and ((.status // "" | ascii_downcase) | IN("terminated", "decommissioned", "quarantined", "failed") | not))][0].host_name // empty') || host=""
+    [[ -n "${host}" ]] && break
+    [[ "${attempt}" == 3 ]] || sleep 10
+  done
   if [[ "${host}" == "" ]]; then
     >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
 Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
@@ -65,7 +74,11 @@ configure() {
   echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) (auto_recreate: ${auto_recreate})"
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
-  if [[ -f "${HOME}/.docker/config.json" ]]; then
+  # The kind nodes of every worktree on the host mount this one file. A worktree with a prefix gets the credentials of
+  # its own store from wt-ctl (push_to_host runs right after configure, and `wt-ctl auth refresh` renews them). The
+  # copy of the user's file, with a token that may have expired, would replace those for the minutes that the sync
+  # and the setup take.
+  if [[ -z "${WORKTREE_PREFIX:-}" && -f "${HOME}/.docker/config.json" ]]; then
     echo "Copying local ~/.docker/config.json authorization credentials to EVG host"
     jq '. | with_entries(select(.key == "auths"))' "${HOME}/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
   fi

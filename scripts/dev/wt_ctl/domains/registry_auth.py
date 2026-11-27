@@ -125,7 +125,10 @@ def mint(runner: Runner) -> dict:
             password = runner.run(argv, env={"AWS_PAGER": ""}, input_text="").stdout.strip()
         except ExternalCommandFailed as exc:
             reason = (exc.stderr.strip().splitlines() or ["aws failed without a message"])[-1]
-            raise WtCtlError(f"could not mint an ECR token: {reason}\n  fix: {MINT_FIX}") from exc
+            profile = os.environ.get("AWS_PROFILE") or "(none)"
+            raise WtCtlError(
+                f"could not mint an ECR token with AWS_PROFILE={profile}: {reason}\n  fix: {MINT_FIX}"
+            ) from exc
         fresh[registry] = {"auth": base64.b64encode(f"AWS:{password}".encode()).decode()}
     return fresh
 

@@ -8,7 +8,7 @@ daemon, or on one Evergreen host.
 ## The worktree prefix
 
 Each worktree has a prefix, `devc<N>-`, where `N` is a number from 0 to 126 that `create` picks (the lowest one no
-worktree of the repository has). The prefix, kept in `.generated/worktree-context` as `WORKTREE_PREFIX`, marks what
+worktree of the repository has, and whose compose network overlaps no docker network that exists). The prefix, kept in `.generated/worktree-context` as `WORKTREE_PREFIX`, marks what
 the worktree owns:
 
 - its kind clusters (`devc<N>-kind`, `devc<N>-e2e-operator`, and so on) and their kubeconfig,
@@ -21,9 +21,16 @@ prefixes. A checkout without the file, like one you made by hand, has no prefix 
 
 ## Prerequisites
 
-- Docker, the `devcontainer` CLI (`npm i -g @devcontainers/cli`), `kind`, `python3` and `tmux`.
+- Docker, the `devcontainer` CLI (`npm i -g @devcontainers/cli`), `kind`, `kubectl`, `python3` and the `aws` CLI (it mints the registry token).
 - For a worktree on an Evergreen host: the `evergreen` CLI, logged in, `ssh`, `rsync`, `jq`, VPN, and an ssh agent that
-  holds the key Evergreen puts on its hosts (`ssh-add ~/.ssh/evg-host`).
+  holds the key Evergreen puts on its hosts (`ssh-add ~/.ssh/evg-host`). `create` checks that the agent holds a key before
+  it spawns a host.
+- 10 GiB of free disk on the worktree filesystem. `create` checks it first when `.devcontainer/.env` has no valid
+  `MCK_DEVC_INDEX`. A pinned worktree skips this check on every rerun, including a failed first create that has yet to
+  build its clusters or container. The pin is written after worktree initialization and before registry credentials,
+  clusters and container builds. Free enough space for the unfinished steps before resuming.
+  `MCK_DEVC_MIN_FREE_GIB` changes the limit to a finite, non-negative number of GiB; zero disables the threshold.
+  Docker's data volume needs room too; this check does not measure it.
 - A checkout to run `wt-ctl` from that has been through `make switch context=<context>`, so that `.generated/` and
   `scripts/dev/contexts/private-context` exist (the `private-context-template` shows what to fill in). Build its venv
   with `scripts/dev/recreate_python_venv.sh`: `wt-ctl create` needs PyYAML from it to rewrite kubeconfigs.
@@ -36,17 +43,18 @@ prefixes. A checkout without the file, like one you made by hand, has no prefix 
 
 ## Commands
 
-Run `create` from the checkout you branch from, or inside a worktree you made by hand. The other verbs act on the
-worktree of the current directory, except `delete`, which names the branch.
+Run `create` from the checkout you branch from, or inside a worktree you made by hand. `attach`, `kubeconfig`, `kfp`
+and `auth` act on the worktree of the current directory, `status` lists every worktree, and `delete` and
+`network allocate` take a branch.
 
 - `wt-ctl create [--local-kind] [--single-cluster|--multi-cluster] [--context <name>] [<branch>]` creates the worktree
   `../<branch with / as _>`, or adopts the worktree that already has the branch checked out (one you made with
   `git worktree add`, at any path). A branch that exists on a remote, a fork included, becomes a local branch that
   tracks that remote, as `git checkout <branch>` does. A branch on more than one remote is refused with the command
   that checks it out explicitly. Without `<branch>` it adopts the checkout you run it in. Adopting copies the
-  `private-context`, the `bin/` and a context into the worktree and builds its venv, which a bare worktree lacks: from
+  `private-context`, the `bin/` and the name of a context into the worktree and builds its venv, which a bare worktree lacks: from
   the checkout you run `create` in, or from the main checkout when you run it inside the worktree. A bare worktree has
-  no env of its own, so its `wt-ctl` runs the one of the main checkout, which must have the tooling. A worktree that has a `private-context` but no `.generated/.current_context` is refused: run `make switch` in it first. Then it gives the worktree the next free index and its prefix, switches its context, creates its kind clusters (on an Evergreen
+  no env of its own, so its `wt-ctl` runs the one of the main checkout, which must have the tooling. A worktree that lacks its `private-context`, its context or its venv (an init that stopped half way) is finished by running `create` again, and what it already has stays. Then it gives the worktree the next free index and its prefix, switches its context, creates its kind clusters (on an Evergreen
   host, or on this machine with `--local-kind`), builds and starts the devcontainer, runs `make prepare-local-e2e` in
   it and starts the operator. Multi-cluster is the default.
   `--context` takes a file from `scripts/dev/contexts`; without it a worktree keeps the context of the checkout you ran
@@ -59,7 +67,7 @@ worktree of the current directory, except `delete`, which names the branch.
   its host and clusters: it makes no Evergreen call and uses the kubeconfig in `.generated/` (see "Evergreen hosts").
   A rerun keeps the kind of the worktree: a worktree without a host stays local.
 - `wt-ctl status` lists the worktrees of the repository with their kind clusters, their health (local worktrees only,
-  see "Cluster health") and devcontainer state.
+  see "Cluster health"), Evergreen host state (see "Evergreen hosts") and devcontainer state.
 - `wt-ctl attach` opens the tmux session of the container (k9s, the operator log, the test log and a shell) and needs a
   terminal. Everything after `attach --` runs in the container instead, without one and without a login shell: wrap a
   command that needs `KUBECONFIG` or the venv, as in `attach -- bash -lc 'kubectl get nodes'`.
@@ -91,7 +99,8 @@ are running, the API server answers `kubectl get nodes` within 10 seconds and ev
 `Error`. A stopped node cannot be started again, so an unhealthy cluster has to be recreated: `create` does that even
 with `--skip-recreate`, after it logs the cluster and the reason. The state in the clusters is lost, and the
 namespace and the operator are set up again. `wt-ctl status` shows `health: ok` or the first reason. Worktrees on an
-Evergreen host are not checked.
+Evergreen host are not checked: `create --skip-recreate` on a host whose node stopped fails in `make prepare-local-e2e` with
+`Unable to connect to the server` after about a minute and a half, and `create` without `--skip-recreate` recreates the clusters on the host.
 
 ## Working in a worktree
 
@@ -113,7 +122,7 @@ scans the tree while `isort` rewrites its files: run `make precommit` again. Com
 scripts/dev/wt-ctl attach -- /workspace/scripts/dev/e2e_run.sh e2e_replica_set_readiness_probe
 ```
 
-`e2e_run.sh` takes a pytest marker or a path under `tests/`. The output goes to `logs/test.log` in the worktree, the
+`e2e_run.sh` takes a pytest marker or a path under `tests/`. The output goes to `logs/test-<target>-<time>.log` in the worktree, which `logs/test.log` links to, the
 JUnit report to `logs/myreport.xml`, and the exit code is pytest's. The operator runs in the container and logs to
 `logs/operator.log`. To start a marker from a clean namespace, run
 `wt-ctl create --skip-recreate <branch>` (with `--local-kind` for a worktree on your laptop): it resets the test
@@ -122,12 +131,21 @@ namespace and restarts the operator, and `--skip-prepare-e2e` leaves the namespa
 ## Evergreen hosts
 
 Without `--local-kind`, `create` spawns an Evergreen host named after the branch directory, or reuses a live one of
-that name (`--evg-host-name <name>` picks another; `--distro` and `--region` apply to a spawn). It then syncs the
-checkout to `/home/ubuntu/devc<N>/mongodb-kubernetes` on the host, recreates the worktree's clusters there with
+that name (`--evg-host-name <name>` picks another; `--distro`, `--region` and `--host-hours` apply to a spawn). It then
+syncs the checkout to `/home/ubuntu/devc<N>/mongodb-kubernetes` on the host, recreates the worktree's clusters there with
 `evg_host.sh` and copies the kubeconfig back to `.generated/current.kubeconfig`. A second worktree joins the same host
 with the same `--evg-host-name`: each worktree has its own directory, and its clusters carry its `devc<N>-` prefix. The
 sync also copies `.generated/worktree-context` (the rest of `.generated/` stays out), so that the scripts on the host see
 the same prefix.
+A host that is not running with an address after 10 minutes stops `create` with the host's last status. A host that this
+`create` spawned is terminated then by its id, also when the host list cannot be read; a host that existed before is left as
+it is.
+
+A spawned host lives 24 hours, which is Evergreen's default. `--host-hours N` (minimum 24) extends a host that `create`
+spawns to about N hours and says so on spawn (`host <name> expires in about N hours`); a host that already exists keeps its
+expiry. Hosts bill while they run, so ask for no more than you need. `wt-ctl status` shows the state of each worktree's
+host: `running`, `GONE` for a host that is terminated, decommissioned, quarantined or failed, or no longer in `evergreen host list --mine`, or `unknown` when
+the list cannot be read (no login, no VPN).
 
 The clusters are reached through ssh. The `evg-host-proxy` sidecar of the worktree's compose project opens a tunnel to
 the host with your ssh agent, because the container has no `~/.ssh`, and `gost-proxy` turns it into an HTTP proxy.
@@ -142,12 +160,24 @@ makes no Evergreen call and uses the host address and kubeconfig that are there;
 and only copies the kubeconfig again.
 
 `delete --evg` removes the worktree's clusters and its directory from the host. The last worktree of a host that `create`
-spawned (it marks it with `~/.wt-ctl-host`) terminates the host. A host you spawned yourself and a host that does not
-answer are left running, with a message. `auth refresh` puts the worktree's registry credentials on the host too, because
-the nodes there mount `~/.docker/config.json`, and `auth status` shows its time left.
+spawned terminates the host. `create` records that in the host's `wt-ctl` tag, which it sets when it names the host, and `delete` reads
+the tag through Evergreen's GraphQL API (`evergreen host list` does not show tags). When the API does not answer, `delete` warns and goes by
+the file `~/.wt-ctl-host`, which an earlier wt-ctl wrote on the hosts it spawned, so those hosts are still recognised. If `delete` cannot tell whether the host is wt-ctl's (the API does
+not answer and there is no `~/.wt-ctl-host`), or the terminate fails, it fails and leaves the local worktree in place: run it again.
+When the last worktrees of a host are deleted at the same time, both may call terminate, and a failed terminate counts as done only when
+Evergreen reports the host `terminated`; the delete then says another worktree's delete ended it. A host you spawned yourself and a
+host that does not answer are left running, with a message. `auth refresh` puts the worktree's registry
+credentials on the host too, because the nodes there mount `~/.docker/config.json`, and `auth status` shows its time left. `evg_host.sh configure` copies your own
+`~/.docker/config.json` to the host only for a checkout without a prefix: the nodes of the worktrees that share a host
+read one file, and `create` puts the worktree's store there itself.
 
-The container has the `evergreen` CLI of the host's build, installed when the container is created, and a copy of
-`~/.evergreen.yml` and of the access token in `~/.kanopy`, without the refresh token. The token lasts as long as the
+Do not overlap a create with the last delete on the same host. A delete counts only directories already on the host;
+a create still preparing its host has no directory there, and a create can also add one after the delete counts zero.
+The delete can terminate the host in either case. Let the last delete finish before creating another worktree on that
+host; if they overlapped, rerun `create` after the delete finishes.
+
+The container has the `evergreen` CLI of the host's build, installed when the container is created, a read-only mount of
+`~/.evergreen.yml` and a copy of the access token in `~/.kanopy`, without the refresh token. The token lasts as long as the
 host's did when the container started. When it expires `evergreen` asks for a login: do not complete it, because that
 logs you out on the host. Run `evergreen client get-oauth-token` on the host and restart the container.
 
@@ -165,8 +195,9 @@ the same before it opens the container, with a warning instead of an error when 
 time left, and `e2e_run.sh` refuses to start with an expired token, because the first pull would fail minutes in.
 Through `attach` you only see that refusal when the renewal failed.
 
-`wt-ctl auth status` exits 0 when every copy is fine, 1 when one is expiring and 3 when one is expired or missing.
-`wt-ctl auth refresh` renews the token and rolls it to the container and the pull secrets of every cluster; run it
+`wt-ctl auth status` exits 0 when every copy is fine, 1 when one is expiring and 3 when one is expired or missing; a
+devcontainer that is not running and an Evergreen host that does not answer are noted and count as fine.
+`wt-ctl auth refresh` renews the token when under 4 hours are left and rolls it to the container and the pull secrets of every cluster; run it
 on the host; it refuses in the container, so that the host writes the store and every copy. `--force` mints a new token even when the current one has
 time left. Both verbs act on the current worktree only.
 
@@ -195,8 +226,8 @@ creates does name `host.docker.internal` (and the node address, as kind's does),
 `kubectl` runs by hand on the host keep their discovery cache under `~/.kube/cache` unless you also set
 `KUBECACHEDIR=<worktree>/.generated/cache/kube`, as `wt-ctl` does.
 
-After you edit Go code, restart the operator with `wt-ctl attach -- /workspace/scripts/dev/op_run.sh --detach`. Add
-`--stop` to stop it.
+After you edit Go code, restart the operator with `wt-ctl attach -- /workspace/scripts/dev/op_run.sh --detach`.
+`op_run.sh --stop` stops it.
 
 ## Git in the container
 
@@ -223,9 +254,9 @@ The unit tests of the pure logic (worktree index, kubeconfig rewrite, registry t
 `scripts/dev/run_python.sh -m pytest scripts/dev/wt_ctl/tests` and are part of `unit_tests_python`.
 
 Two integration tests run real kind clusters, and neither is collected by `unit_tests_python`. They need docker, `kind`,
-`kubectl`, a `private-context`, about 14 GB of free memory, a git checkout (the worktrees are worktrees of `HEAD`, so
-commit what you want tested) and an ECR login, or `KIND_NODE_IMAGE` set to an image you have pulled. The second also
-needs the `devcontainer` CLI. Both refuse to start when clusters from an earlier run are left over, and they delete
+`kubectl`, a `private-context`, a git checkout (the worktrees are worktrees of `HEAD`, so commit what you want
+tested) and an ECR login, or `KIND_NODE_IMAGE` set to an image you have pulled. The first needs about 10 GB of free
+memory and your `~/.docker/config.json` (the nodes mount it), the second about 14 GB and the `devcontainer` CLI. Both refuse to start when clusters from an earlier run are left over, and they delete
 only what they created.
 
 - `scripts/test/kind_prefix_integration.py` checks the prefixes without `wt-ctl`: two worktrees with different prefixes
@@ -258,25 +289,42 @@ built: the tasks use the `:latest` tags unless `OVERRIDE_VERSION_ID` pins a buil
 checks, for the worktrees of one run: the prefix and load balancer pools of `.generated/worktree-context`, the
 kubeconfig and the node the container reaches, that the node containers and the `/home/ubuntu/devc<N>/` directories on a
 host are exactly those of its live worktrees, that deleting one worktree leaves the node containers of the others on its
-host unchanged, that after all groups the node containers on the machine, the home directory and `~/.kube/config` are as
-they were, and that a host the run spawned is gone within two minutes of its last worktree. It touches only worktrees it
-created, refuses to start when an `acc-*` branch exists, and at the end removes its worktrees (`delete --all --force`)
+host unchanged, that after all groups no node container of this run is left on the machine, that the home directory and
+`~/.kube/config` are unchanged, and that a host the run spawned is gone within two minutes of its last worktree. It touches only worktrees it
+created, refuses to start when one of its own `acc-<id>` branches exists, and at the end removes its worktrees (`delete --all --force`)
 and their branches, also if it fails or you interrupt it.
+
+The e2e images come from the `latest` tag of the staging registry, which follows master, so a checkout that is far behind master can fail with a StatefulSet that never becomes ready: rebase it, or set `OVERRIDE_VERSION_ID` to a build of the checkout.
 
 | ID | Where | Context | Marker | Needs | Time |
 |---|---|---|---|---|---|
-| L1 | local kind | `e2e_mdb_kind_ubi_cloudqa` | `e2e_replica_set_config_map` | 3 GB in the Docker VM | 8 min |
-| V1 | local kind, from a bare worktree | `e2e_mdb_kind_ubi_cloudqa` | `e2e_replica_set_config_map` | 3 GB in the Docker VM | 8 min |
-| L2 | local kind, 5 clusters | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | 12 GB in the VM, nothing else heavy | 20 min |
-| R1 | host of its own | as L1 | as L1 | host 2 GB, laptop 1 GB | 10 min |
-| R2 | host of its own | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_cleanup` | AWS keys with S3 rights | 25 min |
-| S1 | shared host | as L1 | `e2e_replica_set` | the shared host | 60 to 90 min together |
-| S2 | shared host | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_s3_based_backup_restore` | AWS keys with S3 rights | 60 to 90 min together |
-| S3 | shared host | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | the shared host | 60 to 90 min together |
+| L1 | local kind | `e2e_mdb_kind_ubi_cloudqa` | `e2e_replica_set_config_map` | 3 GB in the Docker VM | 7 min |
+| V1 | local kind, from a bare worktree | `e2e_mdb_kind_ubi_cloudqa` | `e2e_replica_set_config_map` | 3 GB in the Docker VM | 7 min |
+| L2 | local kind, 5 clusters | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | 12 GB in the VM, nothing else heavy | 17 min |
+| R1 | host of its own | as L1 | as L1 | host 2 GB, laptop 1 GB | 23 min |
+| R2 | host of its own | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_cleanup` | AWS keys with S3 rights | 29 min |
+| H1 | host of its own | as L1 | none, see below | host 2 GB, laptop 1 GB | 20 min |
+| S1 | shared host | as L1 | `e2e_replica_set` | the shared host | 76 min together |
+| S2 | shared host | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_s3_based_backup_restore` | AWS keys with S3 rights | 76 min together |
+| S3 | shared host | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | the shared host | 76 min together |
 
-The scenarios of a run start together and S1 to S3 share one host, `wt-acc-shared`, so the run takes as long as its
-slowest group and needs their resources at once: L1, L2 and V1 about 19 GB in the Docker VM, and three Evergreen hosts for
-R1, R2 and the shared one. Two single-cluster worktrees and one multi-cluster worktree used 14 GB of the shared
+H1 tests the host lifecycle instead of a marker. It creates the worktree with `--host-hours 48` and checks the expiry
+in Evergreen and that the host has the `wt-ctl` tag, then runs `create --skip-recreate` again and checks that the `evg-host-proxy` sidecar was not restarted
+(its `State.StartedAt` is unchanged). It terminates the host and checks that `status` reports it as `GONE` and exits 0.
+A last `create`, without `--host-hours`, must end on a new host that expires in about 24 hours, with the sidecar
+tunnelling to the new address and the container reaching the clusters. The new host must have the tag too.
+
+A run refuses to start when a live host named like one of its scenarios' hosts (`acc-r1`, `acc-r2`, `acc-h1`,
+`wt-acc-shared`) exists. At the end of each host group it terminates every host of that name by id, also when a check
+or `create` failed, because `delete` leaves a host it cannot reach, and reports a host that is still live afterwards.
+
+S1 to S3 share one host, `wt-acc-shared`: their worktrees are created at the same time, and the run checks that exactly
+one live host has that name. S1 is deleted alone, with the check on the node containers of the others, and S2 and S3
+are deleted at the same time.
+
+The scenarios of a run start together, so the run takes as long as its
+slowest group and needs their resources at once: four Evergreen hosts for R1, R2, H1 and the shared one, and a Docker VM of
+26 GB for the local lines (all three together used about 10 GB of it and 15 GB of disk on a fast link). On a slow link they took twice as long, so run them one or two at a time: a local `create` pulls about 8 images per cluster, the CSI install waits a fixed 5 minutes for them, and several clusters pulling at once can stall the whole laptop network. L2 has five clusters and failed three times on a slow link. Two single-cluster worktrees and one multi-cluster worktree used 14 GB of the shared
 host's 64; S2 adds Ops Manager 9 and has not been measured. R2 and S2 need the Ops Manager 9 image of the context
 (`mongodb-enterprise-ops-manager-ubi:<CUSTOM_OM_VERSION>` in your `REGISTRY`). If S2 is too heavy or the AWS keys cannot
 write to S3, `e2e_multi_cluster_backup_restore` is the fallback marker (single-cluster Ops Manager 8).
@@ -286,19 +334,20 @@ R2 does not use `e2e_multi_cluster_appdb` (48 minutes on CI): its `test_create_o
 1000 s timeout, and it failed in all three runs on a host of its own (twice on that timeout).
 
 ```bash
-scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios L1,L2,V1   # together, they share the VM
-scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios R1,R2   # together, one host each
+scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios L1,L2,V1   # together, they share the VM (fast link)
+scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios R1,R2,H1   # together, one host each
 scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios S1,S2,S3   # together on one host
 ```
 
-Use a terminal per line to run the lines side by side. The output is one line per scenario, `L1 PASS 7m42s` or
-`S2 FAIL <first failed check>`, and the exit code is 1 if one failed. The end of a failed marker's output goes to
+Use a terminal per line to run the lines side by side, or put every scenario in one command. A run checks only its own
+branches, hosts and node containers, so runs with different scenarios can share the machine; one that names a scenario
+whose `acc-<id>` branch or host exists refuses to start. The output is one line per scenario, `L1 PASS 7m42s` or `S2 FAIL <first failed check> 12m03s`, and the exit code is 1 if one failed. The end of a failed marker's output goes to
 stderr; the worktree's `logs/` are deleted with the worktree.
 
 Commit what you want tested first (the worktrees are worktrees of `HEAD`). The prerequisites are the ones of the
-integration tests, plus Cloud QA values (`OM_HOST`, `OM_USER`, `OM_API_KEY`) in `private-context` and the
-`LOCAL_OPERATOR` line above. R and S also need the `evergreen` CLI login, VPN and the ssh agent key. L1 and L2 are
-Evergreen tasks. R and S are not: `create` spawns hosts as the logged-in user and reaches them through your ssh agent,
+integration tests, plus Cloud QA values (`OM_USER`, `OM_API_KEY`, `OM_ORGID`) in `private-context` and the
+`LOCAL_OPERATOR` line above. R, H and S also need the `evergreen` CLI login, VPN and the ssh agent key. L1 and L2 are
+Evergreen tasks. R, H and S are not: `create` spawns hosts as the logged-in user and reaches them through your ssh agent,
 which a task host does not have. A run that was killed leaves worktrees and branches behind: `wt-ctl status`,
 `wt-ctl delete --all <branch>` and `git branch -D <branch>` for each `acc-*`, and `evergreen host list --mine` for a host.
 
@@ -322,7 +371,21 @@ access token without the refresh token for the Evergreen CLI. The docker-in-dock
 privileged, and it holds your ssh agent. Run in it only what you would run on the host.
 
 Container-internal state is not host state: the cache volumes `mck-devcontainer-{gomodcache,gocache,uvcache,helmcache}`
-are shared by all worktrees, and `venv`, `bin` and `ssh-auth-sock` belong to one worktree and go with `delete --devcontainer`.
+are shared by all worktrees, and `venv`, `bin`, `ssh-auth-sock` and the docker-in-docker volume belong to one worktree and
+go with `delete --devcontainer`. When listing or removing the volumes fails, delete stops with docker's message and keeps the
+worktree: run it again. A worktree deleted without that flag, or with
+`git worktree remove`, leaves them behind. Docker calls a volume that no container uses dangling. This lists the dangling
+volumes of devcontainer projects, each with its project and volume name. The project is the worktree's directory name
+in lower case, with characters outside `a-z`, `0-9`, `_` and `-` removed, plus `_devcontainer`:
+
+```bash
+docker volume ls -f dangling=true -f label=com.docker.compose.project \
+  --format '{{.Label "com.docker.compose.project"}} {{.Name}}' | awk '$1 ~ /(^|_)devcontainer$/ && index($2, $1 "_") == 1'
+```
+
+A worktree that still exists but whose devcontainer is down has dangling volumes too, and they hold its `venv` and `bin`.
+Compare the projects with `git worktree list`, and remove only the volumes of a worktree that is gone, by name:
+`docker volume rm <name> <name>`.
 
 ## Troubleshooting
 
@@ -331,10 +394,20 @@ checkout you ran it from).
 
 - `cannot ssh to <address> with the keys of the ssh agent`: `ssh-add` the key that Evergreen put on the host, then run
   `create` again. `create` reuses the host.
+- `the ssh agent holds no key` or `free on the worktree filesystem`: `create` stopped before it spawned a host or
+  built anything. Run `ssh-add ~/.ssh/evg-host`, or free disk, then run `create` again. `docker system df` shows what
+  docker holds. Use the listing in "Outside the checkout" to select volumes of worktrees that are gone.
+- `create` warns that the worktree is behind master (counted from its branch, or from the current commit for a new branch): the e2e images use the tag `latest`, which follows master, so a
+  StatefulSet that never becomes ready is likely on a checkout that far behind. Rebase it, then run `create` again.
 - `Pool overlaps with other one on this address space`: another docker network holds the worktree's range, usually the
   compose network of an old worktree. Delete the old worktree with `delete --devcontainer`, or remove the network with
   `docker network rm`.
-- `no context in .generated/`: run `make switch context=<context>` in the checkout you run `create` from.
+- The host expired: `wt-ctl status` shows `GONE`, and kubectl in the container fails with `Service Unavailable`. The
+  clusters on the host are lost. Run `wt-ctl create <branch>`: it spawns a new host, restarts the `evg-host-proxy`
+  sidecar, which still tunnels to the old address, recreates the clusters and sets the namespace and the operator up
+  again. Add `--host-hours` to keep the new host longer than 24 hours.
+- `no context in <path>/.generated: run make switch context=<context> there first`: run it in the checkout you run
+  `create` from.
 - Pulls fail with `403 Forbidden` or `authorization token has expired`: run `wt-ctl auth status`, then
   `wt-ctl auth refresh --force` on the host.
 - A recreate of the kind clusters of a worktree leaves a running operator with a stale kubeconfig. Run
@@ -345,8 +418,9 @@ checkout you ran it from).
   Evergreen host needs `wt-ctl create <branch>`, which recreates the clusters on the host.
 - `make switch` prints `no context exists with the name: "kind-kind"` before the first cluster exists, and the
   devcontainer step prints `[httpOci] 403: Credentials for 'ghcr.io' may be expired`. Both are harmless.
-- `create` stopped at `onCreateCommand ... failed` (no venv, for example): the devcontainer CLI runs `on-create.sh` once
-  per container, so running `create` again skips it. Fix the cause, then run
-  `wt-ctl attach -- bash -lc 'cd /workspace && bash .devcontainer/scripts/on-create.sh'`.
+- `create` stopped at `onCreateCommand ... failed` (a download error, for example): `create` removes the devcontainer
+  that this attempt created (a container that was already there stays), because the devcontainer CLI would not run
+  `on-create.sh` again for it. Run `create` again, with
+  `--skip-recreate` if the clusters came up.
 - To stop a `create` that waits on a container command, press Ctrl-C and run it again. The command in the container,
   for example `make prepare-local-e2e`, keeps running; stop it with `wt-ctl attach -- bash -lc 'pkill -f make'` first.

@@ -11,7 +11,7 @@ from .create import Create, refresh_worktree
 from .delete import delete
 from .domains import kfp
 from .domains.devcontainer import DevcontainerDomain
-from .domains.evg import DEFAULT_DISTRO, DEFAULT_REGION
+from .domains.evg import DEFAULT_DISTRO, DEFAULT_HOST_HOURS, DEFAULT_REGION
 from .domains.network import NetworkDomain, env_lines_for, worktree_values
 from .errors import WtCtlError
 from .header import emit_banner
@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sc.add_argument("--distro", default=DEFAULT_DISTRO, help="distro of a spawned host (default: %(default)s).")
     sc.add_argument("--region", default=DEFAULT_REGION, help="region of a spawned host (default: %(default)s).")
+    sc.add_argument(
+        "--host-hours",
+        type=int,
+        default=DEFAULT_HOST_HOURS,
+        help="hours a newly spawned host lives (minimum and default: %(default)s); existing hosts are unchanged.",
+    )
     topology = sc.add_mutually_exclusive_group()
     topology.add_argument("--single-cluster", dest="multi_cluster", action="store_false", default=None)
     topology.add_argument("--multi-cluster", dest="multi_cluster", action="store_true")
@@ -121,6 +127,8 @@ def cmd_kfp(refs: WorktreeRefs, args: argparse.Namespace) -> int:
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.cmd == "create" and args.host_hours < DEFAULT_HOST_HOURS:
+        parser.error(f"--host-hours must be at least {DEFAULT_HOST_HOURS}")
     runner = Runner()
     try:
         refs = resolve_worktree(runner)

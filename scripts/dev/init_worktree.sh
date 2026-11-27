@@ -43,13 +43,9 @@ maybe_copy() {
 }
 
 maybe_copy "scripts/dev/contexts/private-context" "${main_repo_root}/scripts/dev/contexts/private-context"
-generated_existed=false
-[[ -e "${worktree_root}/.generated" ]] && generated_existed=true
-maybe_copy ".generated"                            "${main_repo_root}/.generated"
-if [[ "${generated_existed}" == "false" ]]; then
-    # The worktree prefix belongs to the worktree it was written for: a copy would make two worktrees own the same clusters.
-    rm -f "${worktree_root}/.generated/worktree-context"
-fi
+# Only the name of the context comes from the source: `make switch` below writes the env files for this worktree. The rest
+# of .generated (kubeconfigs, registry credentials, host and prefix files, cache, locks) belongs to the checkout it is in.
+maybe_copy ".generated/.current_context"           "${main_repo_root}/.generated/.current_context"
 maybe_copy "bin"                                   "${main_repo_root}/bin"
 
 current_context_file="${worktree_root}/.generated/.current_context"

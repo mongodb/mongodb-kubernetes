@@ -57,7 +57,7 @@ def delete(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> None
     if step("evg"):
         EvgDomain(runner).leave(wt, pin.index)
     if step("clusters"):
-        KindDomain(runner).delete_clusters(worktree_prefix(pin.index))
+        KindDomain(runner).delete_clusters(worktree_prefix(pin.index), wt / ".generated" / "current.kubeconfig")
     if step("worktree"):
         argv = ["git", "-C", str(refs.main_repo_root), "worktree", "remove", str(wt)]
         runner.run(argv + (["--force"] if args.force else []))

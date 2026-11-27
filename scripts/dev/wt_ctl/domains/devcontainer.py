@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from ..errors import WtCtlError
+from ..errors import ExternalCommandFailed, WtCtlError
 from ..runner import Runner
 
 # What every in-container command starts with: bash -l alone does not load the checkout's env.
@@ -39,12 +39,32 @@ class DevcontainerDomain:
             raise WtCtlError("devcontainer not found on PATH: npm i -g @devcontainers/cli")
         return ["devcontainer", verb, "--workspace-folder", str(self.worktree), *args]
 
+    def _compose(self) -> list[str]:
+        devc = self.worktree / ".devcontainer"
+        argv = ["docker", "compose", "-p", self.project]
+        for f in (devc / "compose.yml", devc / "compose.generated.yml"):
+            if f.is_file():
+                argv += ["-f", str(f)]
+        return argv
+
     def prepare_and_up(self, log: Path) -> None:
         """Write the compose override files on the host, build the image and start the worktree."""
         init = ["bash", str(self.worktree / ".devcontainer" / "scripts" / "initialize.sh")]
         self.runner.stream(init, log_path=log, cwd=self.worktree)
-        for verb in ("build", "up"):
-            self.runner.stream(self._cli(verb), log_path=log, cwd=self.worktree, env=self.env)
+        self.runner.stream(self._cli("build"), log_path=log, cwd=self.worktree, env=self.env)
+        before = self.container_id()
+        try:
+            self.runner.stream(self._cli("up"), log_path=log, cwd=self.worktree, env=self.env)
+        except ExternalCommandFailed:
+            # The CLI runs onCreateCommand once per container and does not run it again for a container whose first run
+            # failed, which would stay without its venv. Remove a container that this up created or replaced, so that
+            # the next create starts a new one. A container that was there before stays.
+            try:
+                if self.container_id() not in ("", before):
+                    self.runner.run([*self._compose(), "rm", "-sf", "devcontainer"], cwd=self.worktree, env=self.env)
+            except (WtCtlError, OSError) as exc:
+                sys.stderr.write(f"[wt-ctl] warning: could not remove the failed devcontainer: {exc}\n")
+            raise
 
     def bash(self, script: str, log: Path) -> None:
         """Run ``script`` in the container with the checkout's env loaded."""
@@ -63,20 +83,16 @@ class DevcontainerDomain:
 
     def down(self) -> None:
         """Stop the worktree and remove its images and its own volumes, not the shared caches."""
-        devc = self.worktree / ".devcontainer"
-        files = [f for f in (devc / "compose.yml", devc / "compose.generated.yml") if f.is_file()]
-        argv = ["docker", "compose", "-p", self.project]
-        for f in files:
-            argv += ["-f", str(f)]
-        self.runner.stream([*argv, "down", "--remove-orphans", "--rmi", "local"], cwd=self.worktree, env=self.env)
-        # venv, bin and ssh-auth-sock, and the volumes of the devcontainer features (docker-in-docker, minikube).
+        self.runner.stream(
+            [*self._compose(), "down", "--remove-orphans", "--rmi", "local"], cwd=self.worktree, env=self.env
+        )
+        # Keep the worktree so delete can retry a failed volume cleanup.
         labelled = self.runner.run(
-            ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={self.project}"],
-            check=False,
+            ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={self.project}"]
         ).stdout.split()
         volumes = own_volumes(self.project, labelled)
         if volumes:
-            self.runner.run(["docker", "volume", "rm", *volumes], check=False)
+            self.runner.run(["docker", "volume", "rm", *volumes])
 
     def container_id(self, service: str = "devcontainer") -> str:
         """The id of the running container of ``service``, empty when the worktree is down."""
