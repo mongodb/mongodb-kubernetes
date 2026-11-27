@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -543,6 +544,30 @@ func TestContainerPortSlicesByName(t *testing.T) {
 		assert.Equal(t, int32(40), merged[3].ContainerPort, "The ContainerPort should have been overridden")
 		assert.Equal(t, "1.2.3.6", merged[3].HostIP, "The HostIP should have been overridden")
 		assert.Equal(t, corev1.ProtocolTCP, merged[3].Protocol, "The Protocol should remain unchanged")
+	})
+}
+
+func TestMergeProbeReplacesTheHandler(t *testing.T) {
+	original := &corev1.Probe{
+		ProbeHandler:     corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(27017)}},
+		PeriodSeconds:    30,
+		FailureThreshold: 10,
+	}
+
+	t.Run("an override with another handler type replaces the handler", func(t *testing.T) {
+		override := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"true"}}}}
+		merged := Probe(original, override)
+		assert.Nil(t, merged.TCPSocket)
+		assert.Equal(t, []string{"true"}, merged.Exec.Command)
+		assert.Equal(t, int32(30), merged.PeriodSeconds)
+		assert.Equal(t, int32(10), merged.FailureThreshold)
+	})
+
+	t.Run("an override without a handler keeps the original handler", func(t *testing.T) {
+		merged := Probe(original, &corev1.Probe{FailureThreshold: 20})
+		assert.Equal(t, 27017, merged.TCPSocket.Port.IntValue())
+		assert.Nil(t, merged.Exec)
+		assert.Equal(t, int32(20), merged.FailureThreshold)
 	})
 }
 
