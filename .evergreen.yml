@@ -1791,6 +1791,7 @@ buildvariants:
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_mco_test_suite", "e2e_test_suite" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *community_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1802,6 +1803,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1812,6 +1814,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1831,6 +1834,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1842,6 +1846,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi9_slim_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1853,6 +1858,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1874,6 +1880,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -1886,6 +1893,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1897,6 +1905,7 @@ buildvariants:
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1914,6 +1923,7 @@ buildvariants:
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1931,6 +1941,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite", "cloudqa", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1947,6 +1958,7 @@ buildvariants:
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_openshift_test_suite" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     <<: *base_no_om_image_dependency
@@ -1985,6 +1997,7 @@ buildvariants:
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om7", "patch", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1998,6 +2011,7 @@ buildvariants:
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om7", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2010,6 +2024,7 @@ buildvariants:
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2204-medium-high-memory
@@ -2026,6 +2041,7 @@ buildvariants:
   - name: e2e_om90_kind_ubi
     display_name: e2e_om90_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: [*production_code_paths, *base_om9_dependency]
@@ -2043,6 +2059,7 @@ buildvariants:
   - name: e2e_om_dev_kind_ubi
     display_name: e2e_om_dev_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "ops_manager_license" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: [ *production_code_paths, *base_om_dev_dependency ]
@@ -2052,6 +2069,7 @@ buildvariants:
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2065,6 +2083,7 @@ buildvariants:
   - name: e2e_om90_kind_ubi_large
     display_name: e2e_om90_kind_ubi_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: [*production_code_paths, *base_om9_dependency]
@@ -2075,6 +2094,7 @@ buildvariants:
   - name: e2e_static_om90_kind_ubi_large
     display_name: e2e_static_om90_kind_ubi_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2085,6 +2105,7 @@ buildvariants:
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2097,6 +2118,7 @@ buildvariants:
   - name: e2e_static_om80_kind_ubi9_slim
     display_name: e2e_static_om80_kind_ubi9_slim
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2106,6 +2128,7 @@ buildvariants:
   - name: e2e_static_om90_kind_ubi9_slim
     display_name: e2e_static_om90_kind_ubi9_slim
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2115,6 +2138,7 @@ buildvariants:
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2126,6 +2150,7 @@ buildvariants:
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2137,6 +2162,7 @@ buildvariants:
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "race" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-xlarge
     <<: *base_om7_dependency_with_race
@@ -2149,7 +2175,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2170,7 +2196,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2191,7 +2217,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2212,7 +2238,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2233,7 +2259,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2252,7 +2278,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2270,7 +2296,7 @@ buildvariants:
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2290,7 +2316,7 @@ buildvariants:
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2308,7 +2334,7 @@ buildvariants:
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
-    allowed_requesters: [ "patch", "commit" ]
+    allowed_requesters: [ "patch" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -2325,6 +2351,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_multi_cluster_kind
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
@@ -2336,6 +2363,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_multi_cluster_kind
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2347,6 +2375,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_multi_cluster_kind_ubi9_slim
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2357,6 +2386,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_multi_cluster_2_clusters
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_om7_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2367,6 +2397,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2377,6 +2408,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters_ubi9_slim
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "cloudqa", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2387,6 +2419,7 @@ buildvariants:
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2396,6 +2429,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2410,6 +2444,7 @@ buildvariants:
   - name: e2e_multi_cluster_om70_appdb_upgrade
     display_name: e2e_multi_cluster_om70_appdb_upgrade
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
@@ -2419,6 +2454,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_om70_appdb_upgrade
     display_name: e2e_static_multi_cluster_om70_appdb_upgrade
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2428,6 +2464,7 @@ buildvariants:
   - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2437,6 +2474,7 @@ buildvariants:
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2446,6 +2484,7 @@ buildvariants:
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2458,6 +2497,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_operator_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2468,6 +2508,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_static_operator_kind_ubi_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "e2e_test_suite", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -2478,6 +2519,7 @@ buildvariants:
     batchtime: 60
     display_name: e2e_operator_no_webhook_roles_cloudqa
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2487,6 +2529,7 @@ buildvariants:
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
@@ -2509,6 +2552,7 @@ buildvariants:
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_test_suite", "static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -2529,6 +2573,7 @@ buildvariants:
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "e2e_mco_test_suite", "e2e_test_suite" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     <<: [ *production_code_paths, *community_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2570,6 +2615,7 @@ buildvariants:
   - name: init_test_run
     display_name: init_test_run
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "static", "non_static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2593,6 +2639,7 @@ buildvariants:
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
     tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -2605,6 +2652,7 @@ buildvariants:
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
     tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2617,6 +2665,7 @@ buildvariants:
   - name: init_test_run_arm
     display_name: init_test_run_arm
     tags: [ "test_all_and_promote", "test_all_and_promote_test" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-arm64-small
     depends_on:
@@ -2648,6 +2697,7 @@ buildvariants:
       - name: build_init_om_images_ubi
         variant: init_test_run
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "static", "non_static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2695,6 +2745,7 @@ buildvariants:
   - name: build_om70_images
     display_name: build_om70_images
     tags:  [ "test_all_and_promote", "test_all_and_promote_test", "om7", "static", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2703,6 +2754,7 @@ buildvariants:
   - name: build_om80_images
     display_name: build_om80_images
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "om8", "static", "non_static" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2711,6 +2763,7 @@ buildvariants:
   - name: build_om_dev_images
     display_name: build_om_dev_images
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "ops_manager_license" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2719,6 +2772,7 @@ buildvariants:
   - name: build_om90_images
     display_name: build_om90_images
     tags: [ "test_all_and_promote", "test_all_and_promote_test", "om9", "static", "non_static", "static_light" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-small
     tasks:
