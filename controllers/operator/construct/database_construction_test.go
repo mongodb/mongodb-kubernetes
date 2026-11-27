@@ -16,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -91,6 +92,52 @@ func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
 			return cm != nil && len(cm.Items) == 0
 		}), "default mode should not restrict ConfigMap keys via Items")
 	})
+}
+
+func TestDatabaseStatefulSetManagedCertificateTargetTLSMounts(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		architecture      architectures.DefaultArchitecture
+		launcherContainer string
+	}{
+		{name: "static", architecture: architectures.Static, launcherContainer: util.AgentContainerName},
+		{name: "non-static", architecture: architectures.NonStatic, launcherContainer: util.DatabaseContainerName},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().
+				SetSecurity(&mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}).
+				Build()
+
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+				GetPodEnvOptions(),
+				WithDefaultArchitecture(tt.architecture),
+			), zap.S())
+
+			launcherIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+				return c.Name == tt.launcherContainer
+			})
+			require.NotEqual(t, -1, launcherIdx, "launcher container %s must exist", tt.launcherContainer)
+			mounts := sts.Spec.Template.Spec.Containers[launcherIdx].VolumeMounts
+
+			for _, target := range []string{util.TLSCertMountPath, util.TLSCaMountPath} {
+				assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+					return m.MountPath == target
+				}), "ordinary target TLS path %s must be mounted", target)
+			}
+
+			assert.False(t, slices.ContainsFunc(sts.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool {
+				return strings.HasPrefix(v.Name, "appdb-handover-")
+			}), "no old AppDB path volume may be constructed")
+			for _, container := range sts.Spec.Template.Spec.Containers {
+				assert.False(t, slices.ContainsFunc(container.VolumeMounts, func(m corev1.VolumeMount) bool {
+					return strings.HasPrefix(m.Name, "appdb-handover-")
+				}), "no old AppDB path mount may reach %s", container.Name)
+				assert.False(t, slices.ContainsFunc(container.Env, func(e corev1.EnvVar) bool {
+					return e.Name == "MDB_APPDB_MANAGED_CERTIFICATE_HANDOVER"
+				}), "no handover marker may reach %s", container.Name)
+			}
+		})
+	}
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
@@ -1218,4 +1265,85 @@ func TestAgentAPIKeyOverrideUsesGeneratedVaultSecret(t *testing.T) {
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.True(t, strings.HasSuffix(sts.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"], "/"+AgentAPIKeyOverrideSecretName(sts.Name)))
 	assert.NotContains(t, fmt.Sprint(sts.Spec.Template), "customer-api-key")
+}
+
+// TestDatabaseStatefulSetRollsOnManagedCABundleChange checks that the managed CA bundle hashes are
+// on the pod template: a running member keeps the TLS client state it built with the bundle it
+// loaded, so a widened or pruned bundle must replace the members. A bundle the members do not mount
+// must not roll them.
+func TestDatabaseStatefulSetRollsOnManagedCABundleChange(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
+	build := func(serverHash, clientHash string) appsv1.StatefulSet {
+		opts := ReplicaSetOptions(GetPodEnvOptions())(*rs)
+		opts.ManagedServerCABundleHash = serverHash
+		opts.ManagedClientCABundleHash = clientHash
+		return DatabaseStatefulSet(*rs, func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return opts }, zap.S())
+	}
+
+	before := build("server-one", "")
+	widened := build("server-two", "")
+	assert.Equal(t, "server-one", before.Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+	assert.Equal(t, "server-two", widened.Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+	assert.NotEqual(t, before.Spec.Template, widened.Spec.Template,
+		"a widened server bundle must change the pod template and roll the members")
+	assert.NotContains(t, before.Spec.Template.Annotations, ManagedClientCABundleHashAnnotation)
+
+	withClient := build("server-one", "client-one")
+	assert.Equal(t, "client-one", withClient.Spec.Template.Annotations[ManagedClientCABundleHashAnnotation])
+	assert.NotContains(t, build("server-one", "").Spec.Template.Annotations, ManagedClientCABundleHashAnnotation,
+		"without client certificates the client bundle is not mounted and must not roll the members")
+
+	unmanaged := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	assert.NotContains(t, unmanaged.Spec.Template.Annotations, ManagedServerCABundleHashAnnotation,
+		"unmanaged TLS must not annotate or roll the members")
+	assert.NotContains(t, unmanaged.Spec.Template.Annotations, ManagedClientCABundleHashAnnotation)
+
+	// A user pod template annotation must not be able to disable the rollout the bundle requires.
+	rsWithOverride := rs.DeepCopy()
+	rsWithOverride.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			ManagedServerCABundleHashAnnotation: "user-value",
+			ManagedClientCABundleHashAnnotation: "user-value",
+		}},
+	}
+	opts := ReplicaSetOptions(GetPodEnvOptions())(*rsWithOverride)
+	opts.ManagedServerCABundleHash = "server-one"
+	opts.ManagedClientCABundleHash = "client-one"
+	overridden := DatabaseStatefulSet(*rsWithOverride, func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return opts }, zap.S())
+	assert.Equal(t, "server-one", overridden.Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+	assert.Equal(t, "client-one", overridden.Spec.Template.Annotations[ManagedClientCABundleHashAnnotation])
+}
+
+// TestShardedComponentStatefulSetsRollOnManagedCABundleChange checks that every sharded component
+// gets the managed CA bundle hashes on its pod template. The bundle is shared by the whole resource,
+// so a widened or pruned bundle has to roll mongos, the config servers and every shard.
+func TestShardedComponentStatefulSetsRollOnManagedCABundleChange(t *testing.T) {
+	sc := mdbv1.NewClusterBuilder().Build()
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+	configServerSpec := createConfigSrvSpec(sc)
+	mongosSpec := createMongosSpec(sc)
+
+	components := map[string]func(...func(*DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
+		"shard": func(extra ...func(*DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+			return ShardOptions(0, shardSpec, memberCluster.Name, extra...)
+		},
+		"config": func(extra ...func(*DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+			return ConfigServerOptions(configServerSpec, memberCluster.Name, extra...)
+		},
+		"mongos": func(extra ...func(*DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+			return MongosOptions(mongosSpec, memberCluster.Name, extra...)
+		},
+	}
+	for name, options := range components {
+		t.Run(name, func(t *testing.T) {
+			sts := DatabaseStatefulSet(*sc, options(
+				func(opts *DatabaseStatefulSetOptions) { opts.PodVars = defaultPodVars() },
+				func(opts *DatabaseStatefulSetOptions) { opts.ManagedServerCABundleHash = "server-hash" },
+				func(opts *DatabaseStatefulSetOptions) { opts.ManagedClientCABundleHash = "client-hash" },
+			), zap.S())
+			assert.Equal(t, "server-hash", sts.Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+			assert.Equal(t, "client-hash", sts.Spec.Template.Annotations[ManagedClientCABundleHashAnnotation])
+		})
+	}
 }

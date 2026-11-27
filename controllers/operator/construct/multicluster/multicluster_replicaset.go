@@ -3,6 +3,8 @@ package multicluster
 import (
 	"fmt"
 
+	"go.uber.org/zap"
+
 	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -91,10 +93,11 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	return MultiClusterStatefulSetFromOptions(mdbm, stsOptFunc(mdbm))
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+	stsOptions := stsOptFunc(mdbm)
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
 }
 
-func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
+func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
 }

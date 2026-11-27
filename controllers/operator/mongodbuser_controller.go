@@ -22,12 +22,14 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -267,6 +269,12 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to add finalizer: %w", err)), log)
 	}
 
+	if user.Spec.ClientCertificate != nil {
+		if status := r.ensureClientCertificate(ctx, user, mdb); !status.IsOK() {
+			return r.updateStatus(ctx, user, status, log)
+		}
+	}
+
 	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
@@ -326,15 +334,15 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.GetUsername(), password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.GetUsername(), password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
 	secretBuilder := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
-		SetField("username", user.Spec.Username)
+		SetField("username", user.GetUsername())
 
 	// External users have no password, so the key is left out rather than written empty.
 	if user.Spec.Database != authentication.ExternalDB {
@@ -411,13 +419,14 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 	return nil
 }
 
-// toOmUser converts a MongoDBUser spec into an AC user. Pass an empty password for
+// toOmUser converts a MongoDBUser into an AC user. Pass an empty password for
 // external-auth users. needsFollowUp is true when the imported-user path was taken
 // and the caller must requeue for OM to finalise creds from initPwd.
-func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, bool, error) {
+func toOmUser(mdbUser *userv1.MongoDBUser, password string, ac *om.AutomationConfig) (om.MongoDBUser, bool, error) {
+	spec := mdbUser.Spec
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
-		Username:                   spec.Username,
+		Username:                   mdbUser.GetUsername(),
 		Roles:                      []*om.Role{},
 		AuthenticationRestrictions: []string{},
 		Mechanisms:                 []string{},
@@ -469,7 +478,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
-		desiredUser, followUp, err := toOmUser(user.Spec, password, ac)
+		desiredUser, followUp, err := toOmUser(user, password, ac)
 		if err != nil {
 			return err
 		}
@@ -509,7 +518,36 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.NewUsernameOption(user.GetUsername()))
+}
+
+// ensureClientCertificate issues the x509 client certificate of a user with spec.clientCertificate,
+// owned by the user so it is deleted with it, and reports in the status where an application finds
+// what it needs to connect.
+func (r *MongoDBUserReconciler) ensureClientCertificate(ctx context.Context, user *userv1.MongoDBUser, mdb project.Reader) workflow.Status {
+	dbResource, ok := mdb.(certs.CertificateOwner)
+	if !ok || user.Spec.MongoDBResourceRef.Name == "" {
+		return workflow.Invalid("spec.clientCertificate needs spec.mongodbResourceRef to reference a MongoDB or MongoDBMultiCluster resource")
+	}
+	// The operator's Issuers are namespaced, so the certificate has to live next to the database.
+	if dbResource.GetNamespace() != user.Namespace {
+		return workflow.Invalid("spec.clientCertificate needs the user to be in the same namespace as mongo db (%s) (%s)", dbResource.GetName(), dbResource.GetNamespace())
+	}
+
+	clientCert, err := certs.ClientCertificate(dbResource, user)
+	if err != nil {
+		return workflow.Invalid("%s", err.Error())
+	}
+
+	ownerRefs := []metav1.OwnerReference{*metav1.NewControllerRef(user, apiv1.SchemeGroupVersion.WithKind("MongoDBUser"))}
+	if status := certs.EnsureClientCertificate(ctx, r.client, clientCert, ownerRefs); !status.IsOK() {
+		return status
+	}
+	user.Status.ClientCertificate = &userv1.ClientCertificateStatus{
+		SecretName:            user.ClientCertificateSecretName(),
+		ServerCAConfigMapName: certs.ManagedServerCABundleConfigMapName(dbResource.GetName()),
+	}
+	return workflow.OK()
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -520,7 +558,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
 		}
 
-		desiredUser, _, err := toOmUser(user.Spec, "", ac)
+		desiredUser, _, err := toOmUser(user, "", ac)
 		if err != nil {
 			return xerrors.Errorf("error updating user %w", err)
 		}
@@ -559,7 +597,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.NewUsernameOption(user.GetUsername()))
 }
 
 func waitForReadyState(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -594,7 +632,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
 
 	err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
-		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
+		ac.Auth.EnsureUserRemoved(user.RegisteredUsername(), user.Spec.Database)
 		return nil
 	}, log)
 	if err != nil {

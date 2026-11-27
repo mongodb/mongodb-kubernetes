@@ -32,8 +32,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -251,7 +253,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -922,7 +924,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	}, nil)
 
 	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, true, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -987,7 +989,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoringOnShardRemov
 	}, nil)
 
 	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, true, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -1093,7 +1095,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 
 	allConfigs := reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
 
-	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S()))
+	order, err := anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.False(t, order.publishFirst)
 
 	// attempting to set tls to false
 	require.NoError(t, clusterClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
@@ -1105,7 +1109,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
 	allConfigs = reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
-	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S()))
+	order, err = anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.True(t, order.publishFirst)
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
@@ -1309,7 +1315,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1510,7 +1516,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -2192,8 +2198,8 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay, nil)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay, nil, certs.CertManagerReadiness{})
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay, certs.CertManagerReadiness{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2850,6 +2856,36 @@ func TestCreateDesiredProcesses_ExternalMembersForceNewNaming(t *testing.T) {
 	}
 }
 
+// A shard override replaces the shard's mongod configuration, so a shard whose override does not set
+// the withhold parameter must not be treated as if it did: the operator would request a member
+// certificate without the client usage and the members of that shard would reject each other.
+func TestShardWithholdFollowsTheShardOverride(t *testing.T) {
+	sc := test.DefaultClusterBuilder().Build()
+	withholding := &mdbv1.AdditionalMongodConfig{}
+	require.NoError(t, withholding.UnmarshalJSON([]byte(`{"setParameter": {"tlsWithholdClientCertificate": true}}`)))
+	sc.Spec.ShardSpec.AdditionalMongodConfig = withholding
+	// Shard 0 runs with its own configuration, which does not withhold the certificate.
+	sc.Spec.ShardOverrides = []mdbv1.ShardOverride{{
+		ShardNames: []string{sc.ShardName(0)},
+		ShardedClusterComponentOverrideSpec: mdbv1.ShardedClusterComponentOverrideSpec{
+			AdditionalMongodConfig: &mdbv1.AdditionalMongodConfig{},
+		},
+	}}
+
+	helper := &ShardedClusterReconcileHelper{
+		sc:              sc,
+		deploymentState: &ShardedClusterDeploymentState{Status: &mdbv1.MongoDbStatus{}},
+	}
+	shards := helper.prepareDesiredShardsConfiguration()
+	scaler := stubScaler{current: 3, target: 3}
+
+	withheld := certs.ShardConfig(*sc, 1, nil, scaler, shards[1].GetAdditionalMongodConfig())
+	assert.True(t, withheld.WithholdsClientCertificate, "shard 1 uses the configuration of the shard spec, which withholds")
+
+	overridden := certs.ShardConfig(*sc, 0, nil, scaler, shards[0].GetAdditionalMongodConfig())
+	assert.False(t, overridden.WithholdsClientCertificate, "shard 0 is overridden, and its own configuration does not withhold")
+}
+
 // TestShardedRSK8sConfigMatchesDesiredConfiguration pins shardedRSK8sConfig to the reconcile side
 // resolution in prepareDesiredShardsConfiguration so the two cannot drift apart.
 func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {
@@ -3268,6 +3304,80 @@ func dropLastShardFromShardingSection(t *testing.T, dep om.Deployment) {
 		result = append(result, s)
 	}
 	dep["sharding"] = result
+}
+
+// stubScaler is a multi-cluster scaler with fixed member counts, so a test can check what the
+// certificate covers without setting up a whole reconcile.
+type stubScaler struct {
+	current int
+	target  int
+}
+
+func (s stubScaler) DesiredReplicas() int          { return s.target }
+func (s stubScaler) CurrentReplicas() int          { return s.current }
+func (s stubScaler) ForcedIndividualScaling() bool { return false }
+func (s stubScaler) ScalingFirstTime() bool        { return false }
+func (s stubScaler) TargetReplicas() int           { return s.target }
+func (s stubScaler) MemberClusterName() string     { return "cluster-0" }
+func (s stubScaler) MemberClusterNum() int         { return 0 }
+func (s stubScaler) ScalerDescription() string     { return "test" }
+
+// TestManagedMemberClusters covers the list of member clusters one sharded component's certificate
+// is built from: every cluster that runs the component, with the members the certificate has to
+// cover and that cluster's own external domain.
+func TestManagedMemberClusters(t *testing.T) {
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(test.MemberClusters{
+			ClusterNames:             []string{"cluster-0", "cluster-1"},
+			ShardDistribution:        []map[string]int{{"cluster-0": 2, "cluster-1": 2}},
+			ConfigServerDistribution: map[string]int{"cluster-0": 1, "cluster-1": 1},
+			MongosDistribution:       map[string]int{"cluster-0": 1, "cluster-1": 1},
+		}).
+		Build()
+
+	// cluster-0 exposes its mongos under its own domain, cluster-1 is not exposed.
+	ext := "cluster-0.example.com"
+	sc.Spec.MongosSpec.ClusterSpecList[0].ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: &ext}
+
+	helper := &ShardedClusterReconcileHelper{sc: sc}
+	clusters := []multicluster.MemberCluster{
+		{Name: "cluster-0", Index: 0, Healthy: true},
+		// cluster-1 is unreachable, and stays in the list: dropping it would remove its names from
+		// the certificate and issue the certificate again when the cluster comes back.
+		{Name: "cluster-1", Index: 1, Healthy: false},
+	}
+
+	t.Run("every cluster that runs the component, with its own external domain", func(t *testing.T) {
+		got := helper.managedMemberClusters(sc.Spec.MongosSpec, mdbv1.TierMongos, clusters,
+			func(multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+				// the spec asks for 5 members and 2 are there now
+				return stubScaler{current: 2, target: 5}
+			})
+
+		require.Len(t, got, 2, "the unreachable cluster is still covered")
+		assert.Equal(t, "cluster-0", got[0].ClusterName)
+		assert.Equal(t, 0, got[0].ClusterNum)
+		assert.Equal(t, 5, got[0].Members, "covers the target, so a scale up issues the certificate once")
+		require.NotNil(t, got[0].ExternalDomain)
+		assert.Equal(t, "cluster-0.example.com", *got[0].ExternalDomain)
+
+		assert.Equal(t, "cluster-1", got[1].ClusterName)
+		assert.Equal(t, 1, got[1].ClusterNum)
+		assert.Equal(t, 5, got[1].Members)
+		assert.Nil(t, got[1].ExternalDomain, "cluster-1 is not exposed")
+	})
+
+	t.Run("a scale down holds the members that are there, so the names do not shrink", func(t *testing.T) {
+		got := helper.managedMemberClusters(sc.Spec.MongosSpec, mdbv1.TierMongos, clusters,
+			func(multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+				// the spec asks for 4 members and 7 are there now
+				return stubScaler{current: 7, target: 4}
+			})
+
+		require.Len(t, got, 2)
+		assert.Equal(t, 7, got[0].Members)
+		assert.Equal(t, 7, got[1].Members)
+	})
 }
 
 // TestApplySearchParametersForShards_AuthGateAllRoutingModes pins the auth gate for every

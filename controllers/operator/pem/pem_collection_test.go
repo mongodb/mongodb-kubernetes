@@ -93,3 +93,11 @@ mykey==
 	f := NewFileFromData(data)
 	assert.True(t, f.IsValid())
 }
+
+func TestHashBytes(t *testing.T) {
+	hash := HashBytes([]byte("bundle"))
+	assert.Equal(t, hash, HashBytes([]byte("bundle")))
+	assert.NotEqual(t, hash, HashBytes([]byte("other bundle")))
+	// sha256 in base32 without padding, so it is alphanumeric and usable as a file name
+	assert.Regexp(t, "^[A-Z2-7]{52}$", hash)
+}

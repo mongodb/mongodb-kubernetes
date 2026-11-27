@@ -91,6 +91,20 @@ func InternalClusterHash(hash string) func(options *construct.DatabaseStatefulSe
 	}
 }
 
+// ManagedServerCABundleHash sets the operator-managed server CA bundle hash the members trust.
+func ManagedServerCABundleHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ManagedServerCABundleHash = hash
+	}
+}
+
+// ManagedClientCABundleHash sets the operator-managed client CA bundle hash the members mount.
+func ManagedClientCABundleHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ManagedClientCABundleHash = hash
+	}
+}
+
 func PrometheusTLSCertHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.PrometheusTLSCertHash = hash

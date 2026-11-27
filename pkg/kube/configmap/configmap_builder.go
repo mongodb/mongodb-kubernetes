@@ -13,6 +13,7 @@ type builder struct {
 	namespace       string
 	ownerReferences []metav1.OwnerReference
 	labels          map[string]string
+	annotations     map[string]string
 }
 
 func (b *builder) SetName(name string) *builder {
@@ -42,6 +43,13 @@ func (b *builder) SetLabels(labels map[string]string) *builder {
 	return b
 }
 
+func (b *builder) SetAnnotations(annotations map[string]string) *builder {
+	newAnnotations := make(map[string]string)
+	maps.Copy(newAnnotations, annotations)
+	b.annotations = newAnnotations
+	return b
+}
+
 func (b *builder) SetData(data map[string]string) *builder {
 	for k, v := range data {
 		b.SetDataField(k, v)
@@ -56,6 +64,7 @@ func (b builder) Build() corev1.ConfigMap {
 			Namespace:       b.namespace,
 			OwnerReferences: b.ownerReferences,
 			Labels:          b.labels,
+			Annotations:     b.annotations,
 		},
 		Data: b.data,
 	}

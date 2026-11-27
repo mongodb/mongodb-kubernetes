@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -101,14 +102,14 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			WithMemberCount(3),
 			construct.GetPodEnvOptions(),
 		)
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
 	})
 	t.Run("agent settings are applied after the override merge", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
-		sts := MultiClusterStatefulSet(mdbm, MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions()))
+		sts := MultiClusterStatefulSet(mdbm, MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions()), zap.NewNop().Sugar())
 		agent := construct.AgentContainer(sts)
 		require.NotNil(t, agent)
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})
@@ -135,7 +136,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			WithStsOverride(&singleClusterOverride.SpecWrapper.Spec),
 		)
 
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 		expectedMatchLabels := singleClusterOverride.SpecWrapper.Spec.Selector.MatchLabels
 		expectedMatchLabels["app"] = ""
@@ -155,7 +156,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			construct.GetPodEnvOptions(),
 		)
 
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 		assert.Equal(t, mdbm.Name+"-0", sts.Spec.Selector.MatchLabels["pod-anti-affinity"])
 		assert.Equal(t, mdbm.Name+"-0", sts.Spec.Template.Labels["pod-anti-affinity"])
@@ -181,7 +182,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			construct.GetPodEnvOptions(),
 		)
 
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
@@ -220,7 +221,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			WithStsOverride(&singleClusterOverride.SpecWrapper.Spec),
 		)
 
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.ServiceName, sts.Spec.ServiceName)
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
@@ -239,7 +240,7 @@ func TestMultiClusterStatefulSet_Labels(t *testing.T) {
 		WithMemberCount(3),
 		construct.GetPodEnvOptions(),
 	)
-	sts := MultiClusterStatefulSet(mdbm, opts)
+	sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 	assert.Equal(t, "user-value", sts.Labels[userLabelKey])
 	require.NotEmpty(t, sts.Spec.VolumeClaimTemplates)
@@ -266,7 +267,7 @@ func TestMultiClusterStatefulSet_StripsOwnerLabels(t *testing.T) {
 		WithMemberCount(3),
 		construct.GetPodEnvOptions(),
 	)
-	sts := MultiClusterStatefulSet(mdbm, opts)
+	sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 	assert.Equal(t, "demo", sts.Labels["app"], "non-reserved user label must survive")
 	assert.NotContains(t, sts.Labels, util.MongoDBOpsManagerResourceOwnerLabel, "spoofed participant key must be stripped")
@@ -348,7 +349,7 @@ func TestPVCOverride(t *testing.T) {
 			construct.GetPodEnvOptions(),
 			WithStsOverride(&stsOverrideConfiguration.SpecWrapper.Spec),
 		)
-		sts := MultiClusterStatefulSet(mdbm, opts)
+		sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 		assert.Equal(t, tt.out.AccessMode, sts.Spec.VolumeClaimTemplates[0].Spec.AccessModes)
 		storage, _ := sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().AsInt64()
 		assert.Equal(t, tt.out.Storage, storage)
@@ -404,7 +405,7 @@ func TestMultiClusterStatefulSet_StaticContainersEnvVars(t *testing.T) {
 				construct.WithDefaultArchitecture(architectures.DefaultArchitecture(tt.defaultArchitecture)),
 			)
 
-			sts := MultiClusterStatefulSet(mdbm, opts)
+			sts := MultiClusterStatefulSet(mdbm, opts, zap.NewNop().Sugar())
 
 			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
 				return container.Name == util.AgentContainerName

@@ -1,0 +1,40 @@
+suite: Allowed issuers for operator-managed certificates
+templates:
+  - operator.yaml
+tests:
+  - it: allowed-issuers env var is not set by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MDB_MANAGED_CERTIFICATE_ALLOWED_ISSUERS
+
+  - it: renders the configured issuers, an entry without a kind meaning Issuer
+    set:
+      security.managedCertificate.allowedIssuers:
+        - name: mdb-certs
+        - name: prod-ca
+          kind: ClusterIssuer
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MDB_MANAGED_CERTIFICATE_ALLOWED_ISSUERS
+            value: "Issuer/mdb-certs,ClusterIssuer/prod-ca"
+
+  - it: fails when an entry has no name
+    set:
+      security.managedCertificate.allowedIssuers:
+        - kind: ClusterIssuer
+    asserts:
+      - failedTemplate:
+          errorMessage: "security.managedCertificate.allowedIssuers: every entry needs a name"
+
+  - it: fails when an entry has an unknown kind
+    set:
+      security.managedCertificate.allowedIssuers:
+        - name: mdb-certs
+          kind: Certificate
+    asserts:
+      - failedTemplate:
+          errorMessage: 'security.managedCertificate.allowedIssuers: kind must be Issuer or ClusterIssuer, got "Certificate"'

@@ -993,21 +993,38 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
+	opsManagerCABundleHash, err := r.managedOpsManagerCABundleHash(ctx, opsManager, &podVars)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
+	appdbOpts.OpsManagerCABundleHash = opsManagerCABundleHash
+
+	appDBCABundleHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
+	if !opsManager.Spec.AppDB.IsMultiCluster() {
+		appdbOpts.ManagedServerCABundleHash = appDBCABundleHash
+	}
+
 	allStatefulSetsExistAndValid, err := r.allStatefulSetsExistsInValidState(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
 	}
 
-	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExistAndValid, log)
+	publishAutomationConfigFirst, managedCABundleChange, err := r.publishAutomationConfigFirst(ctx, opsManager, allStatefulSetsExistAndValid, appdbOpts, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
 
-	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
-		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, appdbOpts)
-		},
-		func() workflow.Status {
-			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
-		},
-	)
+	updateAutomationConfig := func(waitForGoalState bool) workflow.Status {
+		return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, waitForGoalState, appdbOpts)
+	}
+	reconcileStatefulSets := func() workflow.Status {
+		return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
+	}
+
+	workflowStatus = reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange, updateAutomationConfig, reconcileStatefulSets)
 
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
@@ -1088,10 +1105,16 @@ func (r *ReconcileAppDbReplicaSet) GetAppDBConfig(ctx context.Context, opsManage
 	}
 	connectionString := buildMongoConnectionUrl(opsManager, password, r.getCurrentStatefulsetHostnames(opsManager))
 
+	caBundleHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppDBConfig{
 		IsTLSEnabled:     opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled(),
 		CAConfigMapName:  opsManager.Spec.AppDB.GetCAConfigMapName(),
 		ConnectionString: connectionString,
+		CABundleHash:     caBundleHash,
 	}, nil
 }
 
@@ -1133,13 +1156,13 @@ func (r *AppDBReconcilerHelper) getNameOfFirstMemberCluster() string {
 	return firstMemberClusterName
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, allStatefulSetsExist bool, waitForGoalState bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
 	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, podVars, appdbOpts)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
-	if !allStatefulSetsExist {
-		log.Infof("Skipping waiting for all agents to reach the goal state because not all stateful sets are created yet.")
+	if !waitForGoalState || !allStatefulSetsExist {
+		log.Infof("Skipping waiting for all agents to reach the goal state because not all stateful sets are created yet or the rollout is pending.")
 		return workflow.OK()
 	}
 	// We have to separate automation config deployment from agent goal checks.
@@ -1248,14 +1271,34 @@ func getPlaceholderReplacer(appdb omv1.AppDBSpec, memberCluster multicluster.Mem
 		mdbv1.ReplicaSet)
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, log *zap.SugaredLogger) bool {
-	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
-	// TODO this feels insufficient. Shouldn't we check if there is actual change in TLS settings requiring to push sts first? Now it will always publish sts first when TLS enabled
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(ctx context.Context, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, appdbOpts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) (bool, bool, error) {
+	// Publish the automation config first when the existing pods must stop depending on state that
+	// is about to be removed, or when a managed CA bundle change must reach the agents before the
+	// pods are replaced.
 	automationConfigFirst := !allStatefulSetsExistAndValid || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
+	managedCABundleChange := false
+
+	if appdbOpts.ManagedServerCABundleHash != "" {
+		appDBStatefulSet, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
+		if err != nil && !apiErrors.IsNotFound(err) {
+			return false, false, err
+		}
+		if err == nil && managedCABundleChangeOnManagedStatefulSet(appDBStatefulSet, appdbOpts.ManagedServerCABundleHash, "") {
+			log.Debug("Managed AppDB CA bundle changed. automationConfig needs to be updated before the StatefulSet")
+			automationConfigFirst = true
+			managedCABundleChange = true
+		}
+	}
 
 	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
+		if managedCABundleChange {
+			// The version change uses OnDelete, so updating the StatefulSet does not replace pods
+			// on its own. Publishing the new CA paths first is still safe and required before the
+			// pods are recreated by the user or the rollout.
+			automationConfigFirst = true
+		}
 	}
 
 	// if we are performing a force reconfigure we should change the automation config first
@@ -1263,7 +1306,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1
 		automationConfigFirst = true
 	}
 
-	return automationConfigFirst
+	return automationConfigFirst, managedCABundleChange, nil
 }
 
 func (r *ReconcileAppDbReplicaSet) isChangingVersion(opsManager *omv1.MongoDBOpsManager) bool {
@@ -1286,6 +1329,9 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 	rs := om.Spec.AppDB
 	if !rs.IsSecurityTLSConfigEnabled() {
 		return workflow.OK()
+	}
+	if status := r.seedManagedPEMSecretsFromLegacy(ctx, om, log); !status.IsOK() {
+		return status
 	}
 	secretName := rs.Security.MemberCertificateSecretName(rs.Name())
 
@@ -1337,9 +1383,23 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 
 		secretHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 
+		// The sweep finds this secret by the UID label. A user-supplied TLS secret stays unlabeled,
+		// as it did. The owner reference is only set in the cluster that holds the Ops Manager:
+		// a reference to an owner Kubernetes cannot find makes it delete the secret immediately.
+		var ownerLabels map[string]string
+		if rs.GetSecurity().IsManagedCertificateEnabled() {
+			ownerLabels = certs.ManagedCertificateOwnerLabels(certs.AppDBManagedCertificateOwner(om))
+		}
+
 		var errs error
 		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
-			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, certs.AppDB)
+			// A user-supplied TLS secret keeps the owner reference it always had. A managed
+			// certificate only gets one in the cluster that holds the Ops Manager.
+			ownerReferences := r.helper.ownerReferences
+			if rs.GetSecurity().IsManagedCertificateEnabled() && !memberCluster.Legacy {
+				ownerReferences = nil
+			}
+			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, ownerReferences, ownerLabels, certs.AppDB)
 			if err != nil {
 				errs = errors.Join(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
 				continue
@@ -1353,6 +1413,65 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 	return workflow.OK()
 }
 
+// seedManagedPEMSecretsFromLegacy keeps the legacy AppDB certificate in the managed -pem Secret
+// during a migration. The StatefulSet is rolled onto the managed Secret before the automation
+// config is updated, so the file the old config names has to still be there. It uses the same
+// seeding entry point as the MongoDB resources; a SCRAM AppDB only has the member certificate, so
+// the clusterfile and agent seeds are no-ops. There is no subject validation like
+// certs.VerifyMigrationSubjects: an OM HTTPS certificate and a SCRAM AppDB carry no peer identity.
+func (r *ReconcileAppDbReplicaSet) seedManagedPEMSecretsFromLegacy(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
+	appDB := opsManager.Spec.AppDB
+	if appDB == nil || opsManager.Spec.ExternalAppDBRef != nil {
+		return workflow.OK()
+	}
+	currentSecurity := appDB.GetSecurity()
+	if !currentSecurity.IsManagedCertificateEnabled() {
+		return workflow.OK()
+	}
+
+	lastSpec, err := opsManager.GetLastSpec()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to decode the %s annotation: %w", util.LastAchievedSpec, err))
+	}
+	if lastSpec == nil || lastSpec.AppDB == nil {
+		return workflow.OK()
+	}
+
+	lastSecurity := lastSpec.AppDB.GetSecurity()
+	if !mdbv1.IsMigratingToManagedCertificate(lastSecurity, currentSecurity) {
+		return workflow.OK()
+	}
+
+	legacyMemberSecretName := lastSecurity.MemberCertificateSecretName(lastSpec.AppDB.Name())
+	managedMemberSecretName := currentSecurity.MemberCertificateSecretName(appDB.Name())
+	validate := r.appDBMigrationSeedValidator(ctx, opsManager)
+	var errs error
+	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+		if err := certs.SeedManagedPEMSecretFromLegacy(ctx, memberCluster.SecretClient, opsManager.Namespace, legacyMemberSecretName, managedMemberSecretName, nil, certs.AppDB, validate, log); err != nil {
+			errs = errors.Join(errs, xerrors.Errorf("failed to seed the managed AppDB -pem secret from %s in cluster %s: %w", legacyMemberSecretName, memberCluster.Name, err))
+		}
+	}
+	if errs != nil {
+		return workflow.Failed(errs)
+	}
+	return workflow.OK()
+}
+
+func (r *ReconcileAppDbReplicaSet) appDBMigrationSeedValidator(ctx context.Context, opsManager *omv1.MongoDBOpsManager) certs.SeedPEMValidator {
+	return func(pemSecretName, certificate string) error {
+		status := certs.VerifyManagedCertificateMigrationTrust(ctx, r.client, opsManager.Namespace, certs.MigrationTrustCheck{
+			Component:                   "AppDB",
+			LegacyCertificateSecretName: pemSecretName,
+			LegacyPEM:                   certificate,
+			ManagedCABundleName:         opsManager.Spec.AppDB.GetCAConfigMapName(),
+		})
+		if !status.IsOK() {
+			return xerrors.Errorf("the AppDB migration cannot carry the certificate from %s: %s", pemSecretName, status.Message())
+		}
+		return nil
+	}
+}
+
 func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
 	appDBSpec := om.Spec.AppDB
 	if !appDBSpec.IsMultiCluster() || !appDBSpec.IsSecurityTLSConfigEnabled() {
@@ -1360,6 +1479,14 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	}
 
 	caConfigMapName := construct.CAConfigMapName(*om.Spec.AppDB, log)
+	if appDBSpec.GetSecurity().IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, certs.ManagedCertificateOwnerLabels(om), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1386,6 +1513,14 @@ func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Contex
 	}
 
 	caConfigMapName := podVars.SSLMMSCAConfigMap
+	if om.IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, certs.ManagedCertificateOwnerLabels(om), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1437,6 +1572,49 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 	return latestAc, nil
 }
 
+// appDBCAFilePath returns the CA file path configured for AppDB mongod and its monitoring agent.
+// With operator-managed certificates the trust bundle is published under its content hash: mongod
+// builds its TLS context from CAFile and the agent restarts it when the automation config changes,
+// so pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed
+// AppDBs keep the fixed ca-pem path.
+func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	caHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil || caHash == "" {
+		return appdbCAFilePath, err
+	}
+
+	return path.Join(util.ConfigMapVolumeCAMountPath, caHash), nil
+}
+
+// managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
+// "" when the AppDB does not use operator-managed certificates.
+func (r *ReconcileAppDbReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
+		return "", nil
+	}
+
+	caHash, _, err := certs.ReadManagedCABundleHashes(ctx, r.client, opsManager.Spec.AppDB.Name(), opsManager.Namespace, false)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed AppDB CA bundle hash: %w", err)
+	}
+	return caHash, nil
+}
+
+// managedOpsManagerCABundleHash returns the hash of the published operator-managed Ops Manager CA
+// bundle the AppDB agent trusts through -httpsCAFile, or "" when Ops Manager does not use
+// operator-managed certificates or the agent does not mount the Ops Manager CA.
+func (r *ReconcileAppDbReplicaSet) managedOpsManagerCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars) (string, error) {
+	if !opsManager.IsManagedCertificateEnabled() || !construct.ShouldMountSSLMMSCAConfigMap(podVars) {
+		return "", nil
+	}
+
+	caHash, err := configmap.ReadKey(ctx, r.client, util.LatestHashSecretKey, kube.ObjectKey(opsManager.Namespace, podVars.SSLMMSCAConfigMap))
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed Ops Manager CA bundle hash: %w", err)
+	}
+	return caHash, nil
+}
+
 func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, prometheusCertHash string, memberClusterName string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
@@ -1465,6 +1643,11 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
 	}
 	certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
+
+	caFilePath, err := r.appDBCAFilePath(ctx, opsManager)
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
 
 	prometheusModification, err := buildPrometheusModification(ctx, r.SecretClient, opsManager, prometheusCertHash)
 	if err != nil {
@@ -1495,7 +1678,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		SetPreviousAutomationConfig(existingAutomationConfig).
 		SetTLSConfig(
 			automationconfig.TLS{
-				CAFilePath:            appdbCAFilePath,
+				CAFilePath:            caFilePath,
 				ClientCertificateMode: automationconfig.ClientCertificateModeOptional,
 			}).
 		AddProcessModification(func(i int, p *automationconfig.Process) {
@@ -1547,8 +1730,8 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 					rs.GetSecurity().IsTLSEnabled(),
 					podVars.ProjectID,
 					podVars.AgentAPIKey,
-					podVars.SSLRequireValidMMSServerCertificates,
 					opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate,
+					caFilePath,
 				)
 			} else {
 				automationConfig.MonitoringVersions = []automationconfig.MonitoringVersion{}
@@ -1801,7 +1984,7 @@ func toMonitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automatio
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, logRotate *mdbv1.LogRotateForBackupAndMonitoring, caFilePath string) {
 	if projectID == "" || agentAPIKey == "" {
 		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
 		return
@@ -1814,16 +1997,13 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
 		hostname := p.HostName
-		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
 
 		params := map[string]string{}
 		if tls {
-			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, pemKeyFile))
-			if requireValidCert {
-				params["sslRequireValidMMSServerCertificates"] = trueString
-			} else {
-				params["sslRequireValidMMSServerCertificates"] = "false"
-			}
+			// AppDB uses SCRAM with optional TLS client certificates, so no client PEM is needed.
+			// Do not reuse mongod's server PEM as sslClientCertificate: serverAuth-only certificates
+			// are invalid for TLS client authentication, regardless of the database auth mechanism.
+			maps.Copy(params, om.NewTLSParams(caFilePath, ""))
 		} else {
 			om.ClearTLSParams(params)
 		}
@@ -2097,7 +2277,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	appDbSecurity := opsManager.Spec.AppDB.GetSecurity()
 
 	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
-		d.ConfigureTLS(appDbSecurity, appDBCAFilePath)
+		d.ConfigureTLS(appDbSecurity, appDBCAFilePath, "")
 		return nil
 	}, log); err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
@@ -2133,7 +2313,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		ProjectID:   conn.GroupID(),
 		AgentAPIKey: agentApiKey,
 		SSLProjectConfig: env.SSLProjectConfig{
-			SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
+			SSLMMSCAConfigMap: opsManager.GetOpsManagerCA(),
 		},
 	}, nil
 }
@@ -2201,7 +2381,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 		User:      cred.PublicAPIKey,
 		ProjectID: projectId,
 		SSLProjectConfig: env.SSLProjectConfig{
-			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
+			SSLMMSCAConfigMap: om.GetOpsManagerCA(),
 		},
 	}
 
@@ -2467,6 +2647,24 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateSingleCluster(ctx co
 
 func (r *AppDBReconcilerHelper) getAllMemberClusters() []multicluster.MemberCluster {
 	return r.memberClusters
+}
+
+func (r *AppDBReconcilerHelper) managedCertificateOptions(om *omv1.MongoDBOpsManager) certs.Options {
+	opts := certs.AppDBManagedCertConfig(om)
+	for _, memberCluster := range r.getAllMemberClusters() {
+		if memberCluster.Legacy {
+			continue
+		}
+		scaler := scalers.GetAppDBScaler(om, memberCluster.Name, memberCluster.Index, r.memberClusters)
+		opts.MultiClusterMembers = append(opts.MultiClusterMembers, certs.MemberCluster{
+			ClusterNum:     memberCluster.Index,
+			ClusterName:    memberCluster.Name,
+			Members:        max(scaler.CurrentReplicas(), scaler.TargetReplicas()),
+			ExternalDomain: om.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name),
+		})
+	}
+	opts.Topology = om.Spec.AppDB.Topology
+	return opts
 }
 
 func (r *AppDBReconcilerHelper) GetHealthyMemberClusters() []multicluster.MemberCluster {

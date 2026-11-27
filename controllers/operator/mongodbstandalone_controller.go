@@ -407,7 +407,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
 			caFilePath := s.Spec.GetSecurity().GetTLSCAFilePath(util.CAFilePathInContainer)
 			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
-			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath)
+			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath, "")
 			return nil
 		},
 		log)
@@ -475,6 +475,10 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
 		errs = stdErrors.Join(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
+	}
+
+	if err := r.deleteManagedCertificateObjects(ctx, s, log); err != nil {
+		errs = stdErrors.Join(errs, err)
 	}
 
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())

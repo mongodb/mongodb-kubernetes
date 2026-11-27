@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -71,7 +70,6 @@ import (
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -99,9 +97,13 @@ type ReconcileMongoDbShardedCluster struct {
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
 	defaultImageType    architectures.ImageType
+
+	// certManagerReadiness is used to make sure the managed-certificate path fails with
+	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
@@ -118,6 +120,8 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
 		defaultImageType:    defaultImageType,
+
+		certManagerReadiness: certManagerReadiness,
 	}
 }
 
@@ -647,6 +651,10 @@ type ShardedClusterReconcileHelper struct {
 
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
+
+	// certManagerReadiness is decided once at startup, see ReconcileMongoDbShardedCluster. The
+	// managed-certificate path fails with a clear message when it is not ready.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -657,8 +665,10 @@ func NewReadOnlyClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
+	// This helper only reads the deployment state, it never issues certificates, so the readiness
+	// stays not ready.
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		architectures.NonStatic, "", sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
+		architectures.NonStatic, "", sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, certs.CertManagerReadiness{})
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -678,9 +688,10 @@ func NewShardedClusterReconcilerHelper(
 	omConnectionFactory om.ConnectionFactory,
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
+	certManagerReadiness certs.CertManagerReadiness,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReadiness)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -701,6 +712,7 @@ func newShardedClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	readOnly bool,
 	backupEnableDelay time.Duration,
+	certManagerReadiness certs.CertManagerReadiness,
 ) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
@@ -725,7 +737,8 @@ func newShardedClusterReconcilerHelper(
 		defaultArchitecture: defaultArchitecture,
 		defaultImageType:    defaultImageType,
 
-		readOnly: readOnly,
+		readOnly:             readOnly,
+		certManagerReadiness: certManagerReadiness,
 	}
 
 	helper.sc = sc
@@ -868,7 +881,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcile.Result{}, nil
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	// warn if managedCertificate.client is set but not really required/used by the operator
+	sc.SetWarnings(certs.UnusedClientConfigured(sc))
+
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -887,7 +903,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 	// The deletion path reads the deployment state without writing it. A write
 	// would recreate the <name>-state ConfigMap. Kubernetes rejects that create
 	// in a terminating namespace and the finalizer would never complete.
-	reconcilerHelper, err := newShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, true, r.backupEnableDelay)
+	reconcilerHelper, err := newShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, true, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return err
 	}
@@ -1092,6 +1108,23 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
 	}
 
+	// The members are now running with the widened trust bundle (doShardedClusterProcessing
+	// published it and waited for the agents), so a leaf can safely move to a rotated self-signed
+	// CA. The gate covers OnDelete StatefulSets and every still-declared member cluster, including
+	// one the operator cannot reach right now.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		managedCABundleRolled, err := r.managedCABundleRolloutComplete(ctx, sc, log)
+		if err != nil {
+			log.Warnf("Deferring the managed certificate re-issue: %s", err)
+		}
+		if err != nil || !managedCABundleRolled {
+			return r.updateStatus(ctx, sc, workflow.Pending("Waiting for every declared member cluster to roll onto the managed CA bundle before re-issuing certificates"), log)
+		}
+		if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log); err != nil {
+			log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+		}
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1236,6 +1269,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 	r.commonController.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), sc.Namespace, watch.Secret, sc.ObjectKey())
+	r.commonController.watchUserClientCertificateSecrets(ctx, sc, log)
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
@@ -1262,6 +1296,39 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
+	// When managedCertificate is enabled, issue and wait for the cert-manager Certificates for
+	// every sharded component (mongos, config server, each shard). EnsureCertificatesAndCA loops
+	// over all component Options and populates the single per-resource CA trust bundle.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		if !r.certManagerReadiness.Ready {
+			return workflow.Failed(xerrors.New(r.certManagerReadiness.UnavailableMessage()))
+		}
+		// make sure the operator is configured to allow the issuers the resource points at.
+		if err := r.certManagerReadiness.ValidateManagedCertificateIssuers(sc.GetSecurity(), ""); err != nil {
+			return workflow.Failed(err)
+		}
+
+		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
+		sc.SetStatusCondition(certsCondition)
+		if !status.IsOK() {
+			return status
+		}
+
+		// The pods run in the member clusters, but the operator creates the CA bundles only in its own
+		// cluster, so they have to be copied over for the pods to trust the deployment's CAs.
+		if sc.Spec.IsMultiCluster() {
+			replicateStatus := certs.ReplicateManagedCABundlesToMemberClusters(
+				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), certs.ManagedCertificateOwnerLabels(sc), log)
+			if !replicateStatus.IsOK() {
+				return replicateStatus
+			}
+		}
+
+		if status := r.commonController.removeFulfilledPruneAnnotation(ctx, sc, pruneApplied); !status.IsOK() {
+			return status
+		}
+	}
+
 	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1281,7 +1348,11 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	managedServerCABundleHash, managedClientCABundleHash, err := managedDatabaseCABundleHashes(ctx, r.commonController.client, sc.Spec.GetSecurity(), sc.Name, sc.Namespace)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	caFilePath, clusterCAFilePath := databaseCAPathsForHashes(sc.Spec.GetSecurity(), managedServerCABundleHash, managedClientCABundleHash)
 
 	if workflowStatus := controlledfeature.EnsureFeatureControls(ctx, *sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1303,21 +1374,32 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
 
 	opts = deploymentOptions{
-		podEnvVars:           podEnvVars,
-		currentAgentAuthMode: currentAgentAuthMode,
-		caFilePath:           caFilePath,
-		agentCertPath:        agentCertPath,
-		agentCertHash:        agentCertHash,
-		prometheusCertHash:   prometheusCertHash,
+		podEnvVars:                podEnvVars,
+		currentAgentAuthMode:      currentAgentAuthMode,
+		caFilePath:                caFilePath,
+		clusterCAFilePath:         clusterCAFilePath,
+		agentCertPath:             agentCertPath,
+		agentCertHash:             agentCertHash,
+		prometheusCertHash:        prometheusCertHash,
+		managedServerCABundleHash: managedServerCABundleHash,
+		managedClientCABundleHash: managedClientCABundleHash,
 	}
 	allConfigs := r.getAllConfigs(ctx, *sc, opts, log)
+	order, err := anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, r.deploymentState.LastAchievedSpec, allConfigs, r.defaultArchitecture, log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	rollingBackMigration, status := r.unfinishedMigrationRollback(ctx, sc, allConfigs, log)
+	if !status.IsOK() {
+		return status
+	}
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
+	if !isLegacyTLSAdoption(r.deploymentState.LastAchievedSpec, sc.GetSecurity()) && !order.managedCABundleChange && recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", sc.Namespace, sc.Name, r.deploymentState.Status.Phase, r.deploymentState.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, true, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentStatus := r.createKubernetesResources(ctx, sc, opts, log)
 		if !deploymentStatus.IsOK() {
 			log.Errorf("Recovery failed because of deployment errors, %v", deploymentStatus)
@@ -1327,18 +1409,25 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	workflowStatus = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, r.commonController.client, r.deploymentState.LastAchievedSpec, allConfigs, r.defaultArchitecture, log),
-		func() workflow.Status {
-			return r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
-		},
-		func() workflow.Status {
-			st := r.createKubernetesResources(ctx, sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
-			if !st.IsOK() {
-				r.commonController.logAgentErrors(ctx, sc, conn, log)
-			}
+	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
+		// Going back from an unfinished migration, the first update doesn't fail when the agents don't reach
+		// goal state: they may be stuck on the managed files, and only this update, which names the legacy
+		// files again, gets them going. Like recovery, it waits the usual time and then writes anyway.
+		updateOpts := opts
+		updateOpts.skipAgentWaits = rollingBackMigration && !waitForReadyState
+		return r.updateOmDeploymentShardedCluster(ctx, conn, sc, updateOpts, false, waitForReadyState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+	}
+	reconcileStatefulSets := func() workflow.Status {
+		st := r.createKubernetesResources(ctx, sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+		if !st.IsOK() {
+			r.commonController.logAgentErrors(ctx, sc, conn, log)
+		}
+		return st
+	}
 
-			return st
-		})
+	// Going back from an unfinished migration takes the same steps as a managed CA change: update the
+	// automation config without waiting, roll the pods, then update it again and wait.
+	workflowStatus = reconcileDatabaseRollout(order.publishFirst, order.managedCABundleChange || rollingBackMigration, updateAutomationConfig, reconcileStatefulSets)
 
 	if !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1354,20 +1443,20 @@ func (r *ShardedClusterReconcileHelper) prepareX509CertConfigurator(memberCluste
 	for shardIdx := range r.desiredShardsConfiguration {
 		for _, shardMemberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			if shardMemberCluster.Name == memberCluster.Name {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.GetExternalDomain(), r.GetShardScaler(shardIdx, shardMemberCluster)))
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, shardMemberCluster.Name), r.GetShardScaler(shardIdx, shardMemberCluster), r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()))
 			}
 		}
 	}
 
 	for _, configSrvMemberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		if memberCluster.Name == configSrvMemberCluster.Name {
-			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetConfigSrvScaler(configSrvMemberCluster)))
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, configSrvMemberCluster.Name), r.GetConfigSrvScaler(configSrvMemberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()))
 		}
 	}
 
 	for _, mongosMemberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		if memberCluster.Name == mongosMemberCluster.Name {
-			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(mongosMemberCluster)))
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, mongosMemberCluster.Name), r.GetMongosScaler(mongosMemberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig()))
 		}
 	}
 
@@ -1412,31 +1501,121 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 	}
 }
 
-// anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
-// of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
-	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf(sc), defaultArchitecture, log) {
-			return true
+// shardedStatefulSetConfig pairs the options for one component StatefulSet with the client of the
+// member cluster it lives in. The trust bundle is shared by the whole resource, but each
+// StatefulSet and its pods are in a member cluster, so ordering and rollout checks must read there.
+type shardedStatefulSetConfig struct {
+	client  kubernetesClient.Client
+	options func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions
+}
+
+type automationConfigOrder struct {
+	publishFirst          bool
+	managedCABundleChange bool
+}
+
+// anyStatefulSetNeedsToPublishStateToOM checks whether any StatefulSet of the sharded cluster needs
+// the automation config published before Kubernetes resources are updated. It also reports whether
+// that need comes from a managed CA bundle change, which requires a publish-without-waiting pass
+// before the pods are replaced.
+func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configs []shardedStatefulSetConfig, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (automationConfigOrder, error) {
+	var order automationConfigOrder
+	if isLegacyTLSAdoption(lastSpec, sc.GetSecurity()) {
+		return order, nil
+	}
+	for _, cfg := range configs {
+		opts := cfg.options(sc)
+		changed, err := managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, cfg.client, sc, opts)
+		if err != nil {
+			return order, err
+		}
+		if changed {
+			return automationConfigOrder{publishFirst: true, managedCABundleChange: true}, nil
+		}
+		if !order.publishFirst && publishAutomationConfigFirst(ctx, cfg.client, sc, lastSpec, opts, defaultArchitecture, log) {
+			order.publishFirst = true
 		}
 	}
-	return false
+	return order, nil
+}
+
+// managedCABundleRolloutComplete reports whether every pod of every component in every declared
+// member cluster already carries the desired managed CA bundle hashes. It deliberately checks the
+// components in clusters the operator cannot currently reach as well: their members are still part
+// of the deployment, and a leaf must not move before they have rolled.
+func (r *ShardedClusterReconcileHelper) managedCABundleRolloutComplete(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) (bool, error) {
+	serverHash, clientHash, err := managedDatabaseCABundleHashes(ctx, r.commonController.client, sc.Spec.GetSecurity(), sc.Name, sc.Namespace)
+	if err != nil {
+		return false, err
+	}
+	if serverHash == "" && clientHash == "" {
+		return true, nil
+	}
+
+	check := func(memberCluster multicluster.MemberCluster, stsName string) (bool, error) {
+		if memberCluster.Replicas == 0 {
+			return true, nil
+		}
+		if !memberCluster.Healthy || memberCluster.Client == nil {
+			log.Debugf("Deferring certificate re-issue: no client for member cluster %s", memberCluster.Name)
+			return false, nil
+		}
+		rolled, err := managedCABundlePodsRolled(ctx, memberCluster.Client, sc.Namespace, stsName, serverHash, clientHash)
+		if err != nil {
+			return false, xerrors.Errorf("member cluster %s: %w", memberCluster.Name, err)
+		}
+		if !rolled {
+			log.Debugf("Deferring certificate re-issue: %s in member cluster %s has not rolled onto the managed CA bundle", stsName, memberCluster.Name)
+		}
+		return rolled, nil
+	}
+
+	for shardIdx := range r.desiredShardsConfiguration {
+		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
+			rolled, err := check(memberCluster, r.GetShardStsName(shardIdx, memberCluster))
+			if err != nil || !rolled {
+				return rolled, err
+			}
+		}
+	}
+	for _, memberCluster := range r.configSrvMemberClusters {
+		rolled, err := check(memberCluster, r.GetConfigSrvStsName(memberCluster))
+		if err != nil || !rolled {
+			return rolled, err
+		}
+	}
+	for _, memberCluster := range r.mongosMemberClusters {
+		rolled, err := check(memberCluster, r.GetMongosStsName(memberCluster))
+		if err != nil || !rolled {
+			return rolled, err
+		}
+	}
+	return true, nil
 }
 
 // getAllConfigs returns a list of all the configuration functions associated with the Sharded Cluster.
-// This includes the Mongos, the Config Server and all Shards
-func (r *ShardedClusterReconcileHelper) getAllConfigs(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
-	allConfigs := make([]func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, 0)
+// This includes the Mongos, the Config Server and all Shards, paired with the member cluster client.
+func (r *ShardedClusterReconcileHelper) getAllConfigs(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) []shardedStatefulSetConfig {
+	allConfigs := make([]shardedStatefulSetConfig, 0)
 	for shardIdx := range r.desiredShardsConfiguration {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			allConfigs = append(allConfigs, r.getShardOptions(ctx, sc, shardIdx, opts, log, memberCluster))
+			allConfigs = append(allConfigs, shardedStatefulSetConfig{
+				client:  memberCluster.Client,
+				options: r.getShardOptions(ctx, sc, shardIdx, opts, log, memberCluster),
+			})
 		}
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		allConfigs = append(allConfigs, r.getConfigServerOptions(ctx, sc, opts, log, memberCluster))
+		allConfigs = append(allConfigs, shardedStatefulSetConfig{
+			client:  memberCluster.Client,
+			options: r.getConfigServerOptions(ctx, sc, opts, log, memberCluster),
+		})
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		allConfigs = append(allConfigs, r.getMongosOptions(ctx, sc, opts, log, memberCluster))
+		allConfigs = append(allConfigs, shardedStatefulSetConfig{
+			client:  memberCluster.Client,
+			options: r.getMongosOptions(ctx, sc, opts, log, memberCluster),
+		})
 	}
 	return allConfigs
 }
@@ -1471,6 +1650,82 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 	}
 }
 
+// unfinishedMigrationRollback reports whether the customer removed managedCertificate before the
+// migration from legacy TLS reached Running, which is the case when any component's StatefulSet still
+// mounts operator-managed certificates. If so, it makes sure it is safe to go back in every component
+// and member cluster.
+func (r *ShardedClusterReconcileHelper) unfinishedMigrationRollback(ctx context.Context, sc *mdbv1.MongoDB, configs []shardedStatefulSetConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
+	lastSpec := r.deploymentState.LastAchievedSpec
+	if lastSpec == nil {
+		return false, workflow.OK()
+	}
+	rollingBack := false
+	for _, cfg := range configs {
+		sts, err := cfg.client.GetStatefulSet(ctx, kube.ObjectKey(sc.Namespace, cfg.options(*sc).GetStatefulSetName()))
+		if errors.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return false, workflow.Failed(err)
+		}
+		if isUnfinishedMigrationRollback(lastSpec.GetSecurity(), sc.GetSecurity(), sts) {
+			rollingBack = true
+			break
+		}
+	}
+	if !rollingBack {
+		return false, workflow.OK()
+	}
+
+	log.Info("managedCertificate was removed before the migration finished: going back to the legacy certificates, updating the automation config before the pods")
+	verify := func(memberClusters []multicluster.MemberCluster, stsName string) error {
+		for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
+			if err := certs.VerifyManagedPEMSecretsKeepLegacy(ctx, memberCluster.SecretClient, sc.Namespace, stsName, sc.Name, sc.GetSecurity()); err != nil {
+				return xerrors.Errorf("member cluster %s: %w", memberCluster.Name, err)
+			}
+		}
+		return nil
+	}
+	if err := verify(r.mongosMemberClusters, sc.MongosRsName()); err != nil {
+		return true, workflow.Failed(err)
+	}
+	if err := verify(r.configSrvMemberClusters, sc.ConfigRsName()); err != nil {
+		return true, workflow.Failed(err)
+	}
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		if err := verify(r.shardsMemberClustersMap[i], sc.ShardName(i)); err != nil {
+			return true, workflow.Failed(err)
+		}
+	}
+	return true, workflow.OK()
+}
+
+// seedManagedPEMSecretsFromLegacy keeps the legacy certificate files of every component in its new
+// -pem secrets, before they are created, so the restarted pods still have the files the automation
+// config names until it is updated. It runs in every member cluster that holds the component, because
+// that is where the -pem secrets are.
+func (r *ShardedClusterReconcileHelper) seedManagedPEMSecretsFromLegacy(ctx context.Context, s *mdbv1.MongoDB, lastAchieved *mdbv1.Security, log *zap.SugaredLogger) error {
+	seed := func(memberClusters []multicluster.MemberCluster, stsName string) error {
+		for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
+			if err := certs.SeedManagedPEMSecretsFromLegacy(ctx, memberCluster.SecretClient, s.Namespace, stsName, s.Name, lastAchieved, s.GetSecurity(), log); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := seed(r.mongosMemberClusters, s.MongosRsName()); err != nil {
+		return err
+	}
+	if err := seed(r.configSrvMemberClusters, s.ConfigRsName()); err != nil {
+		return err
+	}
+	for i := 0; i < s.Spec.ShardCount; i++ {
+		if err := seed(r.shardsMemberClustersMap[i], s.ShardName(i)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
@@ -1482,22 +1737,45 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		return workflow.Failed(err)
 	}
 
+	// When migrating to managed certificates from legacy TLS management, keep the legacy certificate files in the new -pem secrets,
+	// so the restarted pods still have the files the automation config (old) names until it is updated.
+	if lastSpec := r.deploymentState.LastAchievedSpec; lastSpec != nil && mdbv1.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), s.GetSecurity()) {
+		// Refuse a migration that would change the subjects MongoDB uses to identify the deployment. All
+		// components carry the same membership subject, so checking one of them is enough.
+		if status := certs.VerifyMigrationSubjects(ctx, r.commonController.client, s, lastSpec.GetSecurity(), s.ConfigRsName(), log); !status.IsOK() {
+			return status
+		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		// Each component has its own certificates, so all of them are checked.
+		components := []string{s.MongosRsName(), s.ConfigRsName()}
+		for i := 0; i < s.Spec.ShardCount; i++ {
+			components = append(components, s.ShardName(i))
+		}
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), components, log); !status.IsOK() {
+			return status
+		}
+		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster))
+		mongosCert := certs.MongosConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig())
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster))
+		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig())
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
-			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
+			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(i, memberCluster), r.desiredShardsConfiguration[i].GetAdditionalMongodConfig())
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
@@ -1800,7 +2078,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	sc := obj.(*mdbv1.MongoDB)
 
 	var errs error
+
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
+		errs = stdErrors.Join(errs, err)
+	}
+
+	if err := r.commonController.deleteManagedCertificateObjects(ctx, sc, log); err != nil {
 		errs = stdErrors.Join(errs, err)
 	}
 
@@ -1812,6 +2095,11 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			clusterName := item.Name
 			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
 				errs = stdErrors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
+			// After the StatefulSets are gone, because it removes the secrets their pods mount: the -pem
+			// secrets and the copies of the CA bundles, which carry no owner reference in a member cluster.
+			if err := deleteManagedCertificateObjectsInCluster(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = stdErrors.Join(errs, err)
 			}
 		}
 	}
@@ -1925,9 +2213,29 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) error {
+func AddShardedClusterController(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	memberClustersMap map[string]cluster.Cluster,
+	backupEnableDelay time.Duration,
+	omMetrics OMMetricsMultiplexer,
+	allowedIssuers certs.AllowedIssuers,
+) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics)
+	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
+	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
+	// message when it is false.
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics, certManagerReadiness)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -1956,6 +2264,16 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	if err != nil {
 		return err
 	}
+
+	// Watch operator-owned cert-manager Certificates so a Ready-status transition of certificate resources re-triggers
+	// reconcile of the owning MongoDB. This is mainly helpful when the renewal of the certificate fails becausae in that
+	//  case only certificate's status is changed.
+	if certManagerReadiness.Ready {
+		if err := watch.MongoDBCertificates(mgr, c, mdbv1.ShardedCluster); err != nil {
+			return err
+		}
+	}
+
 	// if vault secret backend is enabled watch for Vault secret change and  reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
@@ -2024,6 +2342,111 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	return nil
 }
 
+// managedCertOptions returns the certificate Options for every sharded component: mongos, the
+// config server, and each shard.
+//
+// In a single cluster sharded cluster every component lives in the one cluster, so each component
+// gets its own Options. In a multi-cluster sharded cluster one component runs in several member
+// clusters and all of them share that component's certificate, so the component gets a single
+// Options carrying every member cluster it runs in. That makes the certificate's names the union
+// across those clusters, instead of one cluster's certificate overwriting another's.
+func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
+	if !r.sc.Spec.IsMultiCluster() {
+		// One member cluster, the operator's own. Each component gets its own certificate for it.
+		var opts []certs.Options
+		for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig()))
+		}
+		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()))
+		}
+		for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(shardIdx, memberCluster), r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()))
+			}
+		}
+		return opts
+	}
+
+	opts := []certs.Options{
+		certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.MongosRsName(),
+			r.managedMemberClusters(r.sc.Spec.MongosSpec, mdbv1.TierMongos, r.mongosMemberClusters, r.GetMongosScaler),
+			r.desiredMongosConfiguration.GetAdditionalMongodConfig(),
+		),
+		certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.ConfigRsName(),
+			r.managedMemberClusters(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, r.configSrvMemberClusters, r.GetConfigSrvScaler),
+			r.desiredConfigServerConfiguration.GetAdditionalMongodConfig(),
+		),
+	}
+	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+		opts = append(opts, certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.ShardName(shardIdx),
+			r.managedMemberClusters(r.sc.Spec.ShardSpec, mdbv1.TierShard, r.shardsMemberClustersMap[shardIdx], func(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+				return r.GetShardScaler(shardIdx, memberCluster)
+			}),
+			r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()),
+		)
+	}
+	return opts
+}
+
+// managedCABundleNames returns the CA bundle ConfigMaps the operator creates for a sharded cluster.
+// The server bundle is always created, the client bundle only when the deployment uses x509 client
+// certificates.
+func (r *ShardedClusterReconcileHelper) managedCABundleNames() []string {
+	names := []string{certs.ManagedServerCABundleConfigMapName(r.sc.Name)}
+	if r.sc.Spec.GetSecurity().RequiresX509ClientCerts() {
+		names = append(names, certs.ManagedClientCABundleConfigMapName(r.sc.Name))
+	}
+	return names
+}
+
+// managedCABundleTargets returns the member clusters the CA bundles are copied to, the clusters that
+// are up, because a cluster the operator cannot reach cannot be written to.
+func (r *ShardedClusterReconcileHelper) managedCABundleTargets() []certs.MemberClusterTarget {
+	healthy := getHealthyMemberClusters(r.allMemberClusters)
+	targets := make([]certs.MemberClusterTarget, 0, len(healthy))
+	for _, memberCluster := range healthy {
+		targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+	}
+	return targets
+}
+
+// managedMemberClusters turns the member clusters that run one component into the list the
+// certificate builder needs.
+//
+// It uses every member cluster, not only the healthy ones. The certificate's never-shrink
+// annotation only remembers the clusters that are in the list, so leaving an unreachable cluster
+// out would drop its names from the certificate and issue it twice, once when the cluster goes away
+// and once when it comes back.
+//
+// For each cluster it covers the larger of the members that are there now and the members the spec
+// asks for, so a scale up covers the target in one go and the certificate is issued once rather
+// than once per member.
+func (r *ShardedClusterReconcileHelper) managedMemberClusters(
+	component *mdbv1.ShardedClusterComponentSpec,
+	tier mdbv1.ShardedClusterTier,
+	memberClusters []multicluster.MemberCluster,
+	scaler func(multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler,
+) []certs.MemberCluster {
+	out := make([]certs.MemberCluster, 0, len(memberClusters))
+	for _, memberCluster := range memberClusters {
+		s := scaler(memberCluster)
+		out = append(out, certs.MemberCluster{
+			ClusterNum:     memberCluster.Index,
+			ClusterName:    memberCluster.Name,
+			Members:        max(s.CurrentReplicas(), s.TargetReplicas()),
+			ExternalDomain: r.sc.Spec.EffectiveExternalDomain(component, tier, memberCluster.Name),
+		})
+	}
+	return out
+}
+
 func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
 	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name)
 	if !memberCluster.Legacy {
@@ -2060,13 +2483,22 @@ type deploymentOptions struct {
 	podEnvVars           *env.PodEnvVars
 	currentAgentAuthMode string
 	caFilePath           string
+	clusterCAFilePath    string
 	agentCertPath        string
 	agentCertHash        string
 	agentCredentialHash  string
+	// managedServerCABundleHash and managedClientCABundleHash are the hashes of the managed CA
+	// bundles the members mount, empty when managed certificates are off.
+	managedServerCABundleHash string
+	managedClientCABundleHash string
 
 	finalizing         bool
 	processNames       []string
 	prometheusCertHash string
+	// skipAgentWaits makes the authentication update go on when the agents don't reach goal state,
+	// without ignoring errors the way isRecovering does. Only the first automation config update of a
+	// rollback from an unfinished migration sets it.
+	skipAgentWaits bool
 	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
 	externalAgentVersion string
 }
@@ -2079,13 +2511,14 @@ type deploymentOptions struct {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(ctx, sc, conn, log)
-	if err != nil {
-		if !isRecovering {
-			return workflow.Failed(err)
+func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, waitForReadyState bool, log *zap.SugaredLogger) workflow.Status {
+	if waitForReadyState {
+		if err := r.waitForAgentsToRegister(ctx, sc, conn, log); err != nil {
+			if !isRecovering {
+				return workflow.Failed(err)
+			}
+			logWarnIgnoredDueToRecovery(log, err)
 		}
-		logWarnIgnoredDueToRecovery(log, err)
 	}
 
 	dep, err := conn.ReadDeployment(ctx)
@@ -2104,7 +2537,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	opts.finalizing = false
 	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
 
-	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
+	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, waitForReadyState, log)
 
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
@@ -2115,21 +2548,28 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
-	if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-		if !isRecovering {
-			if shardsRemoving {
-				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
+	if shardsRemoving {
+		// Publishing was enough for the pre-rollout pass, but a shard removal must converge before
+		// StatefulSets are touched, so keep the regular waiting/finalization path for this pass.
+		waitForReadyState = true
+	}
+	if waitForReadyState {
+		if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+			if !isRecovering {
+				if shardsRemoving {
+					return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
+				}
+				return workflow.Failed(err)
 			}
-			return workflow.Failed(err)
+			logWarnIgnoredDueToRecovery(log, err)
 		}
-		logWarnIgnoredDueToRecovery(log, err)
 	}
 
 	if shardsRemoving {
 		opts.finalizing = true
 
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
+		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, waitForReadyState, log)
 		if !workflowStatus.IsOK() {
 			if !isRecovering {
 				return workflowStatus
@@ -2139,11 +2579,13 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
-		if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-			if !isRecovering {
-				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
+		if waitForReadyState {
+			if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+				if !isRecovering {
+					return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
+				}
+				logWarnIgnoredDueToRecovery(log, err)
 			}
-			logWarnIgnoredDueToRecovery(log, err)
 		}
 	}
 
@@ -2168,7 +2610,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	return workflow.OK()
 }
 
-func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
+func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, waitForReadyState bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 	// Mongos
 	var mongosProcesses []om.Process
 	// We take here the first cluster arbitrarily because the options are used for irrelevant stuff below, same for
@@ -2228,7 +2670,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", sc.Spec.GetDownloadBase(), isRecovering, log)
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", sc.Spec.GetDownloadBase(), isRecovering || opts.skipAgentWaits, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus
@@ -2288,7 +2730,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			}
 
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
-			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
+			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath, opts.clusterCAFilePath)
 
 			d.SetDownloadBase(sc.Spec.GetDownloadBase())
 
@@ -2319,8 +2761,10 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
-	if err := om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-		return nil, shardsRemoving, workflow.Failed(err)
+	if waitForReadyState {
+		if err := om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+			return nil, shardsRemoving, workflow.Failed(err)
+		}
 	}
 
 	if additionalReconciliationRequired {
@@ -2674,6 +3118,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
+		ManagedServerCABundleHash(opts.managedServerCABundleHash),
+		ManagedClientCABundleHash(opts.managedClientCABundleHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()),
 		WithDefaultConfigSrvStorageSize(),
@@ -2719,6 +3165,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
+		ManagedServerCABundleHash(opts.managedServerCABundleHash),
+		ManagedClientCABundleHash(opts.managedClientCABundleHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(r.desiredMongosConfiguration.GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),
@@ -2765,6 +3213,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
+		ManagedServerCABundleHash(opts.managedServerCABundleHash),
+		ManagedClientCABundleHash(opts.managedClientCABundleHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(r.desiredShardsConfiguration[shardNum].GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),

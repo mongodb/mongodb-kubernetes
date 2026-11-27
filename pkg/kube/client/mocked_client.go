@@ -205,6 +205,10 @@ func (m mockedClient) DeleteAllOf(_ context.Context, _ k8sClient.Object, _ ...k8
 	return nil
 }
 
+func (m mockedClient) Apply(_ context.Context, _ runtime.ApplyConfiguration, _ ...k8sClient.ApplyOption) error {
+	panic("not implemented")
+}
+
 func (m mockedClient) Status() k8sClient.StatusWriter {
 	return mockedStatusWriter{parent: m}
 }

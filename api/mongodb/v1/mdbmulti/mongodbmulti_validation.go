@@ -76,6 +76,15 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 		}
 	}
 
+	// Called explicitly here (rather than through a CEL rule) so the restriction is dropped
+	// together with the operator once the transition is supported (KUBE-714), see
+	// DenyManagedCertificateX509InternalClusterTransition.
+	if old != nil {
+		if res := mdbv1.DenyManagedCertificateX509InternalClusterTransition(m.Spec.DbCommonSpec, old.Spec.DbCommonSpec); res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
 	return validationResults
 }
 

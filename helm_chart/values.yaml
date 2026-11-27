@@ -148,6 +148,19 @@ operator:
       # Valid time units are "h". Anything less than one hours defaults to 168h
       frequency: 168h
 
+# Operator-managed TLS. When enabled, the chart grants the operator RBAC to create and own the
+# cert-manager Certificates and Issuers that back the operator-managed CAs.
+security:
+  managedCertificate:
+    enabled: false
+    # Restricts the issuers that resources may point at from a security.managedCertificate
+    # issuerRef. When empty, any Issuer or ClusterIssuer is allowed.
+    allowedIssuers: []
+    #  - name: mdb-certs
+    #    kind: Issuer          # Issuer (default) or ClusterIssuer
+    #  - name: prod-ca
+    #    kind: ClusterIssuer
+
 ## Database
 database:
   name: mongodb-kubernetes-database

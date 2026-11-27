@@ -63,6 +63,14 @@ const (
 	AgentSettingsPath     = "/etc/mongodb-agent"
 	AgentSettingsHash     = "mongodb.com/agent-startup-config-hash"
 
+	// ManagedServerCABundleHashAnnotation is the database pod template annotation holding the
+	// hash of the operator-managed server CA bundle the members trust.
+	ManagedServerCABundleHashAnnotation = "managedServerCABundleHash"
+
+	// ManagedClientCABundleHashAnnotation is the database pod template annotation holding the
+	// hash of the operator-managed client CA bundle, set only when the members mount it.
+	ManagedClientCABundleHashAnnotation = "managedClientCABundleHash"
+
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
@@ -91,8 +99,17 @@ const (
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type DatabaseStatefulSetOptions struct {
-	Replicas                int
-	Name                    string
+	Replicas int
+	Name     string
+
+	// We use one common CA bundle ConfigMap per resource/deployment (<resource>-managed-{server,client}-ca-bundle).
+	// DatabaseStatefulSetOptions.Name differs per sharded component (mongos, configserver, each shard)
+	// because it's set to the STS name, so it can't be used to find that ConfigMap. OwnerResourceName
+	// holds the owning resource name for the lookup of the CA bundle. Only the sharded components set it,
+	// elsewhere (e.g. RS) it's empty and the volume builder falls back to DatabaseStatefulSetOptions.Name,
+	// which already equals the resource name there.
+	OwnerResourceName string
+
 	ServiceName             string
 	PodSpec                 *mdbv1.PodSpecWrapper
 	PodVars                 *env.PodEnvVars
@@ -126,6 +143,12 @@ type DatabaseStatefulSetOptions struct {
 	MongodbImage           string
 	AgentImage             string
 	CustomAgentURL         string
+
+	// ManagedServerCABundleHash and ManagedClientCABundleHash are the hashes of the
+	// operator-managed CA bundles the members mount. A running member keeps the TLS client state
+	// it built with the bundle it loaded, so a widened or pruned bundle has to replace the pods.
+	ManagedServerCABundleHash string
+	ManagedClientCABundleHash string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -326,6 +349,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
+		OwnerResourceName:       cfg.mdb.Name,
 		ServiceName:             cfg.serviceName,
 		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
@@ -429,6 +453,24 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 	}
 }
 
+// ApplyManagedCABundleHashAnnotations puts the effective managed CA bundle hashes on the pod
+// template. It runs after user StatefulSet/StatefulSetSpec overrides, so an override cannot remove
+// the annotation and silently disable the rollout a widened or pruned bundle requires.
+func ApplyManagedCABundleHashAnnotations(sts *appsv1.StatefulSet, serverHash, clientHash string) {
+	annotations := map[string]string{}
+	if serverHash != "" {
+		annotations[ManagedServerCABundleHashAnnotation] = serverHash
+	}
+	if clientHash != "" {
+		annotations[ManagedClientCABundleHashAnnotation] = clientHash
+	} else if serverHash != "" {
+		delete(sts.Spec.Template.Annotations, ManagedClientCABundleHashAnnotation)
+	}
+	if len(annotations) > 0 {
+		podtemplatespec.WithAnnotations(annotations)(&sts.Spec.Template)
+	}
+}
+
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	return DatabaseStatefulSetFromOptions(mdb, stsOptFunc(mdb), log)
 }
@@ -472,6 +514,7 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	}
 
 	applyAgentSettings(&sts, *stsOpts)
+	ApplyManagedCABundleHashAnnotations(&sts, stsOpts.ManagedServerCABundleHash, stsOpts.ManagedClientCABundleHash)
 	return sts
 }
 

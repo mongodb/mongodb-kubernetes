@@ -34,8 +34,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -124,6 +125,120 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 	// fetch the last updates as the reconciliation loop can update the mdb resource.
 	err = client.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m)
 	assert.NoError(t, err)
+}
+
+func TestMultiReplicaSetManagedCABundleOrderingAndRolloutGate(t *testing.T) {
+	ctx := t.Context()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{}}).
+		Build()
+	reconciler, central, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: certs.ManagedServerCABundleConfigMapName(mrs.Name), Namespace: mrs.Namespace},
+		Data:       map[string]string{util.LatestHashSecretKey: "new-server"},
+	}))
+
+	replicas := int32(1)
+	for _, clusterName := range clusters {
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName)), Namespace: mrs.Namespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas:       &replicas,
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+				Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server",
+				}}},
+			},
+		}
+		require.NoError(t, members[clusterName].Create(ctx, sts))
+		require.NoError(t, members[clusterName].Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-0", sts.Name),
+			Namespace:   mrs.Namespace,
+			Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"},
+		}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}))
+	}
+
+	changed, err := reconciler.managedCABundleHashChangedInMemberClusters(ctx, mrs, "new-server", "")
+	require.NoError(t, err)
+	assert.True(t, changed, "a member-cluster StatefulSet with the previous bundle must force the automation config first")
+
+	rolled, err := reconciler.managedCABundleRolloutComplete(ctx, mrs)
+	require.NoError(t, err)
+	assert.False(t, rolled, "every declared member cluster must have rolled before the leaf re-issue")
+
+	for _, clusterName := range clusters {
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, stsName), sts))
+		sts.Spec.Template.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation] = "new-server"
+		require.NoError(t, members[clusterName].Update(ctx, sts))
+		pod := &corev1.Pod{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-0", stsName)), pod))
+		pod.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation] = "new-server"
+		require.NoError(t, members[clusterName].Update(ctx, pod))
+	}
+
+	rolled, err = reconciler.managedCABundleRolloutComplete(ctx, mrs)
+	require.NoError(t, err)
+	assert.True(t, rolled)
+}
+
+func TestMultiReplicaSetManagedCABundleAdoptionKeepsAutomationConfigAfterStatefulSet(t *testing.T) {
+	ctx := t.Context()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{}}).
+		Build()
+	reconciler, _, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	replicas := int32(1)
+	for _, clusterName := range clusters {
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: mrs.Namespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: util.DatabaseContainerName}},
+						Volumes: []corev1.Volume{{
+							Name:         util.SecretVolumeName,
+							VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: stsName + "-cert-pem"}},
+						}},
+					},
+				},
+			},
+		}
+		require.NoError(t, members[clusterName].Create(ctx, sts))
+	}
+
+	changed, err := reconciler.managedCABundleHashChangedInMemberClusters(ctx, mrs, "new-server", "")
+	require.NoError(t, err)
+	assert.False(t, changed, "the pods still mount the legacy Secret, so the StatefulSets go first")
+
+	for _, clusterName := range clusters {
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, stsName), sts))
+		sts.Spec.Template.Spec.Volumes[0].Secret.SecretName = stsName + "-managed-cert-pem"
+		require.NoError(t, members[clusterName].Update(ctx, sts))
+	}
+
+	changed, err = reconciler.managedCABundleHashChangedInMemberClusters(ctx, mrs, "new-server", "")
+	require.NoError(t, err)
+	assert.True(t, changed, "a StatefulSet that mounts managed certificates is already managed, even without the annotation")
+
+	for _, clusterName := range clusters {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))), sts))
+		sts.Annotations = map[string]string{util.AppDBMigrationReadyAnnotation: trueString}
+		require.NoError(t, members[clusterName].Update(ctx, sts))
+	}
+	changed, err = reconciler.managedCABundleHashChangedInMemberClusters(ctx, mrs, "new-server", "")
+	require.NoError(t, err)
+	assert.False(t, changed, "released AppDB pods still run headless agents even when their certs are already managed")
 }
 
 func TestChangingFCVMultiCluster(t *testing.T) {
@@ -618,6 +733,41 @@ func TestSyncAgentAPIKeySecret(t *testing.T) {
 	assert.Equal(t, []byte("central-key"), created.Data[util.OmAgentApiKey])
 }
 
+// TestMultiClusterManagedCertificateCARefsWatched checks that the CA inputs of the operator-managed
+// certificates are registered with the multi-cluster resource as their dependent, for both ConfigMap
+// and Secret sources, so that editing one re-triggers reconciliation.
+func TestMultiClusterManagedCertificateCARefsWatched(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+			Server: &mdb.CertificateConfig{
+				AdditionalTrustedCAs: []mdb.CARef{
+					{Name: "extra-ca", Kind: "ConfigMap", Key: "ca.crt"},
+					{Name: "extra-ca-secret", Kind: "Secret", Key: "ca.crt"},
+				},
+			},
+		}}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	// the first reconcile creates the Certificates, then cert-manager issues them
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, mrs.Namespace)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+
+	dependent := kube.ObjectKey(mrs.Namespace, mrs.Name)
+	watched := reconciler.resourceWatcher.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")}], dependent)
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")}], dependent)
+	// a Secret source is not watched as a ConfigMap, and the other way around
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")})
+}
+
 func TestServiceCreation_WithExternalName(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
@@ -1074,7 +1224,7 @@ func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
 			require.NoError(t, memberClient.List(ctx, sets))
 			require.NotEmpty(t, sets.Items)
 			for _, set := range sets.Items {
-				hash := set.Spec.Template.Annotations[construct.AgentSettingsHash]
+				hash := set.Spec.Template.Annotations[operatorConstruct.AgentSettingsHash]
 				require.NotEmpty(t, hash)
 				hashes[clusterName] = append(hashes[clusterName], hash)
 			}
@@ -1105,7 +1255,7 @@ func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
 func TestMultiReplicaSetRemovedClusterIsDeletedWithoutItsKeySecret(t *testing.T) {
 	ctx := context.Background()
 	customerKeyVolume := corev1.Volume{
-		Name: construct.AgentAPIKeyVolumeName,
+		Name: operatorConstruct.AgentAPIKeyVolumeName,
 		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
 			SecretName: "customer-credential",
 			Items:      []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey}},
@@ -1227,7 +1377,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -2592,7 +2742,7 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 func defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
+	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{Ready: true})
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 	})
@@ -2661,4 +2811,71 @@ func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]clie
 		clientMap[e] = memberCluster.GetClient()
 	}
 	return clientMap
+}
+
+// TestManagedMemberSANs covers how many members the shared member certificate covers per cluster.
+func TestManagedMemberSANs(t *testing.T) {
+	spec := func(items ...mdb.ClusterSpecItem) mdb.ClusterSpecList { return mdb.ClusterSpecList(items) }
+
+	tests := []struct {
+		name      string
+		effective mdb.ClusterSpecList
+		desired   mdb.ClusterSpecList
+		expected  []int
+	}{
+		{
+			name:      "scale-up covers the target number so the cert is issued once",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 2}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 5}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 6}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			expected:  []int{5, 6, 3},
+		},
+		{
+			name:      "steady state is unchanged",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			expected:  []int{3, 3},
+		},
+		{
+			name:      "scale-down keeps the members that exist",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 1}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			expected:  []int{3, 1},
+		},
+		{
+			name:      "cluster being removed keeps its effective members",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}, mdb.ClusterSpecItem{ClusterName: "gone", Members: 0}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}),
+			expected:  []int{2, 0},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			mrs.Spec.ClusterSpecList = tc.desired
+
+			sans := memberClustersForManagedCert(mrs, tc.effective)
+			got := make([]int, 0, len(sans))
+			for _, s := range sans {
+				got = append(got, s.Members)
+			}
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	t.Run("the external domain is taken per member cluster", func(t *testing.T) {
+		extA, extC := "ext-cluster-a.example.com", "ext-cluster-c.example.com"
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+			{ClusterName: "c1", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extA}},
+			{ClusterName: "c2", Members: 2},
+			{ClusterName: "c3", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extC}},
+		}
+
+		sans := memberClustersForManagedCert(mrs, mrs.Spec.ClusterSpecList)
+		require.Len(t, sans, 3)
+		assert.Equal(t, &extA, sans[0].ExternalDomain)
+		assert.Nil(t, sans[1].ExternalDomain)
+		assert.Equal(t, &extC, sans[2].ExternalDomain)
+	})
 }

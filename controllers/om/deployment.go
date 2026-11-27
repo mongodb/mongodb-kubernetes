@@ -74,7 +74,7 @@ func NewDeployment() Deployment {
 
 // ConfigureTLS configures the deployment's TLS settings from the security
 // specification provided by the user in the mongodb resource.
-func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
+func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath, clusterCAFilePath string) {
 	if !security.IsTLSEnabled() {
 		d["tls"] = map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)}
 		return
@@ -89,6 +89,20 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	// sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
 	tlsConfig["CAFilePath"] = caFilePath
+
+	if clusterCAFilePath != "" {
+		tlsConfig["clusterCAFilePath"] = clusterCAFilePath
+		return
+	}
+	// No managed client CA path was passed, so remove the clusterCAFilePath the operator wrote
+	// earlier. This happens when the deployment stops using the operator-managed client CA, for
+	// example when managedCertificate is removed to go back to legacy TLS. Its pods no longer mount
+	// that CA, and mongod would fail to start if the path stayed. Only a path in the operator's
+	// client CA directory is removed, because that is the only place the operator writes it.
+	// Any other path was set outside the operator, so it is left alone.
+	if existing, ok := tlsConfig["clusterCAFilePath"].(string); ok && strings.HasPrefix(existing, util.TLSClusterCaMountPath+"/") {
+		delete(tlsConfig, "clusterCAFilePath")
+	}
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process

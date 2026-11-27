@@ -168,6 +168,15 @@ def test_enable_https_on_opsmanager(
 
 
 @mark.e2e_om_ops_manager_https_enabled
+def test_appdb_monitoring_reaches_https_ops_manager(ops_manager: MongoDBOpsManager):
+    """Once Ops Manager is served over HTTPS with a custom CA, the AppDB monitoring module
+    must still be able to reach it: the AppDB agent has to trust the Ops Manager CA
+    (passed to it via -httpsCAFile) for the monitoring connection to succeed."""
+    ops_manager.assert_appdb_monitoring_group_was_created()
+    ops_manager.assert_monitoring_data_exists()
+
+
+@mark.e2e_om_ops_manager_https_enabled
 def test_project_is_configured_with_custom_ca(
     ops_manager: MongoDBOpsManager,
     namespace: str,
