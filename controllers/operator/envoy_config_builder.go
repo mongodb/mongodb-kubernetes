@@ -2,6 +2,7 @@ package operator
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
@@ -41,6 +42,10 @@ const (
 	// SearchEnvoyMetadata{routed_from_another_shard: true}.
 	// Proto wire: field 1 (varint) = true → bytes [0x08, 0x01] → base64 "CAE="
 	searchEnvoyMetadataRoutedValue = "CAE="
+
+	// envoyMaxAttemptCountHeader carries 1 + numRetries. mongot compares it with x-envoy-attempt-count
+	// to decide between RESOURCE_EXHAUSTED (Envoy retries) and the terminal 489 overload error.
+	envoyMaxAttemptCountHeader = "x-envoy-max-attempt-count"
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -237,6 +242,13 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 	}
 }
 
+func overwriteHeader(key, value string) *corev3.HeaderValueOption {
+	return &corev3.HeaderValueOption{
+		Header:       &corev3.HeaderValue{Key: key, Value: value},
+		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+	}
+}
+
 // buildFilterChain builds a filter chain for one route.
 func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *searchv1.EnvoyRetryPolicy) (*listenerv3.FilterChain, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
@@ -256,6 +268,7 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 		return nil, err
 	}
 
+	retryPolicy := buildRetryPolicy(rp)
 	envoyRoute := &routev3.Route{
 		Match: &routev3.RouteMatch{
 			PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
@@ -265,23 +278,18 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 			Route: &routev3.RouteAction{
 				ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
 				Timeout:          durationpb.New(300 * time.Second),
-				RetryPolicy:      buildRetryPolicy(rp),
+				RetryPolicy:      retryPolicy,
 			},
+		},
+		RequestHeadersToAdd: []*corev3.HeaderValueOption{
+			overwriteHeader(envoyMaxAttemptCountHeader, strconv.FormatUint(uint64(retryPolicy.GetNumRetries().GetValue())+1, 10)),
 		},
 	}
 
 	// Inject the gRPC binary metadata header for fallback routes so mongot
 	// returns empty results instead of failing.
 	if route.RoutedFromAnotherShard {
-		envoyRoute.RequestHeadersToAdd = []*corev3.HeaderValueOption{
-			{
-				Header: &corev3.HeaderValue{
-					Key:   searchEnvoyMetadataHeader,
-					Value: searchEnvoyMetadataRoutedValue,
-				},
-				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-			},
-		}
+		envoyRoute.RequestHeadersToAdd = append(envoyRoute.RequestHeadersToAdd, overwriteHeader(searchEnvoyMetadataHeader, searchEnvoyMetadataRoutedValue))
 	}
 
 	hcm := &hcmv3.HttpConnectionManager{

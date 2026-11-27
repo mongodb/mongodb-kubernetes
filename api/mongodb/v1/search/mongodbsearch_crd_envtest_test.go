@@ -139,6 +139,15 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			}}}},
 			errorContains: "must not set operator-managed label keys",
 		},
+		{
+			name:   "managed LB numRetries accepts the largest value mongot can parse as numRetries+1",
+			create: []searchv1.ClusterSpec{{LoadBalancer: managedLBWithNumRetries(2147483646)}},
+		},
+		{
+			name:          "managed LB numRetries rejects values whose max-attempt header overflows int32",
+			create:        []searchv1.ClusterSpec{{LoadBalancer: managedLBWithNumRetries(2147483647)}},
+			errorContains: "should be less than or equal to 2147483646",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,4 +291,8 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.errorContains)
 		})
 	}
+}
+
+func managedLBWithNumRetries(n uint32) *searchv1.LoadBalancerConfig {
+	return &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{RetryPolicy: &searchv1.EnvoyRetryPolicy{NumRetries: &n}}}
 }

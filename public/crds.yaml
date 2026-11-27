@@ -5278,6 +5278,7 @@ spec:
                                     NumRetries is the maximum number of retries per request.
                                     Defaults to 2 if not specified (3 total attempts including the original).
                                   format: int32
+                                  maximum: 2147483646
                                   minimum: 1
                                   type: integer
                                 perTryTimeout:
