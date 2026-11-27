@@ -4,10 +4,8 @@ Each variant needs to be tagged with one or more tags referencing related build 
 
 - pr_patch: for patches created by GitHub PRs
 - staging: for builds triggered when merging to master or release branch
-- deprecated-release: legacy release process (rebuilds/retests everything), triggered by "old-X.Y.Z" git tags. To be
-  removed soon — see .evergreen-release.yml.
-- release-publish: new release process (publish-only, no rebuild/retest), triggered by "new-X.Y.Z" git tags. See
-  .evergreen-release-publish.yml.
+- release-publish: publish-only release process (no rebuild/retest), triggered by matching version tags without
+  annotation-prefix selection. See .evergreen-release-publish.yml.
 
 For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
 Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
@@ -40,19 +38,10 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y
 evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
 ```
 
-### Legacy release scenario (deprecated, to be removed soon):
+### Release-publish scenario:
 
-Rebuilds and retests every image before publishing. Triggered when the tag annotation does NOT start with "[new]"; the
-CLI patch below runs the same variants. See .evergreen-release.yml.
-
-```shell
-evergreen patch -p mongodb-kubernetes -a deprecated-release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
-```
-
-### New release-publish scenario:
-
-Publishes already-promoted images straight to production — no rebuild, no retest. Triggered when the tag annotation
-starts with "[new]"; the CLI patch below runs the same variants. See .evergreen-release-publish.yml.
+Publishes already-promoted images straight to production — no rebuild, no retest. Matching version tags trigger this
+process without annotation-prefix selection; the CLI patch below runs the same variants. See .evergreen-release-publish.yml.
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
@@ -69,8 +58,8 @@ every major version bump.
 
 ### Release-style preflight only (no image push, no Pyxis submit)
 
-Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run *
-*`release_images`** (nothing is built/pushed) and sets **`preflight_submit: false`** (check only).
+Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, using existing published images
+without building or pushing images, and sets **`preflight_submit: false`** (check only).
 
 You must pass versions for tags that **already exist on Quay** (typically match **`release.json`** on your branch: *
 *`mongodbOperator`**, readiness hook versions, etc.).
@@ -242,13 +231,11 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 |-----------------------------------|-----------------------------------------------------------------|
 | `staging`                         | Full master-merge (staging) scenario                            |
 | `preflight_release_test`          | Release-style preflight only (no image push, no Pyxis submit)   |
-| `deprecated-release`              | Legacy release process (rebuilds and retests before publishing) |
-| `release-publish`                 | New release process (publishes already-promoted images)         |
+| `release-publish`                 | Publish-only release process (publishes already-promoted images) |
 | `release_specific_agent_manually` | Release a specific agent version manually                       |
 | `release_all_agents_manually`     | Release all agent versions manually                             |
 | `release_current_agents_manually` | Release the current agent versions manually                     |
 | `public_docs_snippets`            | Public docs snippets refresh (generation + PR creation)         |
-| `smoke_test_release`              | Smoke suite against released images                             |
 | `periodic_teardowns`              | Periodic teardown variants                                      |
 
 ### Usage

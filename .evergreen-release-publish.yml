@@ -1,36 +1,12 @@
-# New release process. Triggered when the tag annotation starts with
-# "[new]" (see decide_release_process.py). Unlike the legacy process
-# (.evergreen-release.yml, deprecated), this does not rebuild or retest
-# images: it publishes the images already
-# promoted for the tagged commit (via the mainline mckci_release_promote task)
-# straight to production. Everything else the legacy process does that is NOT
-# an image rebuild/retest — preflight+submit, OpenShift bundle prep + RH
-# release branches, prerelease code snippet generation, chart release PR,
-# chart-to-OCI release, kubectl plugin release, and GitHub release info —
-# still runs here, gated on release_publish instead of on rebuilding images.
+# This is a publish-only release process: it publishes images promoted
+# for the tagged commit without rebuilding or retesting them. The pipeline
+# performs preflight and RH certification, OpenShift bundle and RH branch work,
+# post-release snippet generation, chart and plugin releases, and GitHub
+# release-info publication.
 include:
   - filename: .evergreen-functions.yml
 
 tasks:
-  # Reads the tag annotation to decide which release pipeline to run
-  # and generates the matching build variants via generate.tasks.
-  - name: decide_release_process
-    commands:
-      - func: clone
-      - func: python_venv
-      - command: subprocess.exec
-        type: test
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          include_expansions_in_env:
-            - triggered_by_git_tag
-            - tag_description_override  # synthetic annotation for patches; bypasses real git tag lookup
-          binary: scripts/dev/run_python.sh scripts/evergreen/decide_release_process.py
-      - command: generate.tasks
-        params:
-          files:
-            - evergreen_tasks.json
-
   - name: mckci_release_publish_images
     allowed_requesters: [ "patch", "github_tag" ]
     commands:
@@ -45,18 +21,66 @@ tasks:
           args:
             - scripts/evergreen/publish_images.sh
 
-buildvariants:
-  # Named *_patch so Evergreen patch filtering targets this variant without colliding
-  # with the real-tag "release_decider" variant.
-  - name: release_decider_patch
-    display_name: release_decider_patch
-    tags: [ "release-decider" ]
+  - name: prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
     allowed_requesters: [ "patch", "github_tag" ]
-    run_on:
-      - ubuntu2404-small
-    tasks:
-      - name: decide_release_process
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: setup_prepare_openshift_bundles
+      - command: shell.exec
+        params:
+          shell: bash
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - enterprise_aws_access_key_id
+            - enterprise_aws_secret_access_key
+          script: scripts/evergreen/ensure_openshift_bundle_ready.sh
 
+  - name: publish_openshift_bundles_to_rh
+    tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: update_evergreen_expansions
+      - func: publish_openshift_bundles_to_rh
+
+  - name: release_kubectl_mongodb_plugin
+    tags: [ "binary_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: install_macos_notarization_service
+      - func: assume_devprod_platforms_ecr_role
+      - func: write_devprod_platforms_ecr_aws_profile
+      - func: release_kubectl_mongodb_plugin
+
+  - name: add_releaseinfo_to_github_assets
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: add_releaseinfo_to_github_assets
+
+  - name: create_chart_release_pr
+    tags: [ "helm_chart_release_pr" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: publish_helm_chart
+
+buildvariants:
   - name: release_publish
     display_name: release_publish
     tags: [ "release-publish" ]
@@ -67,9 +91,7 @@ buildvariants:
       - name: mckci_release_publish_images
 
   # Preflight/RH certification against the images just published to
-  # quay.io/mongodb/*:{version} — reuses the task defined in
-  # .evergreen-release.yml (globally available once both files are included
-  # by .evergreen.yml). No rebuild: preflight only reads existing images.
+  # quay.io/mongodb/*:{version}. No rebuild: preflight only reads existing images.
   - name: preflight_released_images
     display_name: preflight_released_images
     tags: [ "release-publish" ]
@@ -83,10 +105,10 @@ buildvariants:
       - name: preflight_release_operator_images_task_group
 
   # Prepares the OpenShift bundle for this version if it doesn't already
-  # exist in S3 (see should_prepare_openshift_bundles.sh). No image rebuild:
-  # reads the version from release.json.
-  - name: prepare_openshift_bundles_publish
-    display_name: prepare_openshift_bundles_publish
+  # exist in S3. This is a single statically scheduled task: it only succeeds
+  # after the bundle is present, so the RH publisher cannot race an upload.
+  - name: prepare_openshift_bundles
+    display_name: prepare_openshift_bundles
     tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
@@ -97,7 +119,7 @@ buildvariants:
       - name: "*"
         variant: preflight_released_images
     tasks:
-      - name: run_conditionally_prepare_and_upload_openshift_bundles
+      - name: prepare_and_upload_openshift_bundles
 
   # Opens a PR against the Red Hat forks with the bundle prepared above. The
   # code only pushes branches to forks; the PR to Red Hat is manually created by the release operator.
@@ -109,10 +131,23 @@ buildvariants:
     # Allowed on patches: only pushes to mongodb-forks; the Red Hat PR is manual.
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
-      - name: run_conditionally_prepare_and_upload_openshift_bundles
-        variant: prepare_openshift_bundles_publish
+      - name: prepare_and_upload_openshift_bundles
+        variant: prepare_openshift_bundles
     tasks:
       - name: publish_openshift_bundles_to_rh
+
+  # Manual, patch-only image preflight. It checks existing release images and
+  # deliberately has no publish dependency or release-publish tag.
+  - name: preflight_release_images_patch_test
+    display_name: preflight_release_images_patch_test
+    tags: [ "preflight_release_test" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "patch" ]
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_release_operator_images_task_group
 
   # Public docs snippet generation against the already-published images.
   # Uses the same task groups as the manual public snippet variants
@@ -130,17 +165,17 @@ buildvariants:
       # Wait for the rest of the publishing pipeline to complete
       # before starting snippet generation (snippets are post-release).
       - name: "*"
-        variant: release_chart_to_oci_registry_publish
+        variant: release_chart_to_oci_registry
       - name: "*"
-        variant: release_kubectl_mongodb_plugin_publish
+        variant: release_kubectl_mongodb_plugin
       - name: "*"
-        variant: add_releaseinfo_to_github_assets_publish
+        variant: add_releaseinfo_to_github_assets
       - name: "*"
         variant: preflight_released_images
       - name: "*"
         variant: prepare_openshift_bundles_to_rh
       - name: "*"
-        variant: create_chart_release_pr_publish
+        variant: create_chart_release_pr
     tasks:
       - name: kind_code_snippets_task_group
 
@@ -156,23 +191,23 @@ buildvariants:
       # Wait for the rest of the publishing pipeline to complete
       # before starting snippet generation (snippets are post-release).
       - name: "*"
-        variant: release_chart_to_oci_registry_publish
+        variant: release_chart_to_oci_registry
       - name: "*"
-        variant: release_kubectl_mongodb_plugin_publish
+        variant: release_kubectl_mongodb_plugin
       - name: "*"
-        variant: add_releaseinfo_to_github_assets_publish
+        variant: add_releaseinfo_to_github_assets
       - name: "*"
         variant: preflight_released_images
       - name: "*"
         variant: prepare_openshift_bundles_to_rh
       - name: "*"
-        variant: create_chart_release_pr_publish
+        variant: create_chart_release_pr
     tasks:
       - name: gke_code_snippets_task_group
 
   # File-copy + GitHub PR only; needs just the version string, no images.
-  - name: create_chart_release_pr_publish
-    display_name: create_chart_release_pr_publish
+  - name: create_chart_release_pr
+    display_name: create_chart_release_pr
     tags: [ "release-publish" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -182,8 +217,8 @@ buildvariants:
 
   # helm package + push to OCI; gated on release_publish so the chart never
   # references an operator image that hasn't been published yet.
-  - name: release_chart_to_oci_registry_publish
-    display_name: release_chart_to_oci_registry_publish
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
     tags: [ "release-publish" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -196,8 +231,8 @@ buildvariants:
 
   # Publishes/notarizes the kubectl-mongodb plugin binary; needs only the
   # version + already-published assets, no image rebuild.
-  - name: release_kubectl_mongodb_plugin_publish
-    display_name: release_kubectl_mongodb_plugin_publish
+  - name: release_kubectl_mongodb_plugin
+    display_name: release_kubectl_mongodb_plugin
     tags: [ "release-publish" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -210,8 +245,8 @@ buildvariants:
       - name: release_kubectl_mongodb_plugin
 
   # Attaches release metadata to the GitHub release; version-only, no images.
-  - name: add_releaseinfo_to_github_assets_publish
-    display_name: add_releaseinfo_to_github_assets_publish
+  - name: add_releaseinfo_to_github_assets
+    display_name: add_releaseinfo_to_github_assets
     tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small

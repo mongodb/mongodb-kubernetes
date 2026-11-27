@@ -50,7 +50,6 @@ _UNUSED_RE = re.compile(r"task '([^']+)' defined but not used by any variants")
 UNUSED_TASK_ALLOWLIST: dict[str, str] = {
     # --- Invoked dynamically; Evergreen's static validation cannot see the indirection (KEEP) ---
     "run_precommit_and_push": "invoked via run_task_conditionally (run_conditionally_precommit_and_push)",
-    "prepare_and_upload_openshift_bundles": "invoked via run_task_conditionally in the release pipeline",
     "e2e_om_reconcile_perf": "exercised only via generated perf_* tasks (TEST_NAME_OVERRIDE) in scripts/evergreen/e2e/performance/create_variants.py",
     # --- Orphaned e2e tasks disabled pending CLOUDP-349093 (password secret / project migration) ---
     "e2e_sharded_cluster_x509_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
