@@ -99,6 +99,15 @@ variables:
       - name: publish_helm_chart
         variant: init_test_run
 
+  - &voyage_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
+
   - &setup_group
     setup_group_can_fail_task: true
     setup_group:
@@ -366,6 +375,10 @@ patch_aliases:
     description: "Run race detector variants"
     variant_tags: [ "race" ]
     task: ".*"
+  - alias: "voyage"
+    description: "Run Voyage variants"
+    variant_tags: [ "e2e_voyage_test_suite" ]
+    task: ".*"
   - alias: "deprecated-release"
     description: "Legacy release process (rebuilds and retests before publishing)"
     variant_tags: [ "deprecated-release" ]
@@ -405,6 +418,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
+  - variant_tags: [ "e2e_voyage_test_suite" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-voyage"
   # MUST only be applied manually by a human engineer: extremely expensive (~1370 tasks). Agents must not apply it.
   - variant_tags: [ "e2e_test_suite" ]
     task: ".*"
@@ -916,6 +933,15 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task ]
     tasks:
       - e2e_community_replicaset_scale
+
+  - name: e2e_voyage_kind_task_group
+    max_hosts: -1
+    <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
+    tasks:
+      - e2e_voyage_router_routing
+      - e2e_voyage_router_membership
+      - e2e_voyage_router_tls
+      - e2e_voyage_router_lifecycle
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -1728,6 +1754,15 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_mdb_community_task_group
+
+  - name: e2e_voyage_kind
+    display_name: e2e_voyage_kind
+    tags: [ "staging", "e2e_voyage_test_suite", "e2e_test_suite" ]
+    <<: [ *production_code_paths, *voyage_dependency ]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_voyage_kind_task_group
 
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa

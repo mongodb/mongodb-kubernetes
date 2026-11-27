@@ -110,6 +110,9 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+      - voyagerouters
+      - voyagerouters/finalizers
+      - voyagerouters/status
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''

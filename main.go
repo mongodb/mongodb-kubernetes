@@ -59,6 +59,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/webhook"
@@ -72,6 +73,7 @@ const (
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
 	voyageAICRDPlural            = "voyageais"
+	voyageRouterCRDPlural        = "voyagerouters"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -134,6 +136,7 @@ func run() error {
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
 			voyageAICRDPlural,
+			voyageRouterCRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -366,6 +369,11 @@ func run() error {
 			return err
 		}
 	}
+	if slices.Contains(crds, voyageRouterCRDPlural) {
+		if err := setupVoyageRouterCRD(ctx, mgr); err != nil {
+			return err
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -485,6 +493,10 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
 	imageRepository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, "quay.io/mongodb/voyageai")
 	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
+}
+
+func setupVoyageRouterCRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddVoyageRouterController(ctx, mgr, env.ReadOrDefault(util.EnvoyImageEnv, ""), env.ReadOrDefault(constants.ClusterDomainEnv, ""))
 }
 
 func setupMongoDBSearchCRD(

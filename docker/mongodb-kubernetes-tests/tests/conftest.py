@@ -1492,7 +1492,6 @@ def create_issuer(
     certificates. This is based on a Cert-Manager CA Issuer.
     More info here: https://cert-manager.io/docs/configuration/ca/
 
-    Please note, this cert will expire on Dec 8 07:53:14 2023 GMT.
     """
     issuer_data = {
         "tls.key": open(_fixture("ca-tls.key")).read(),

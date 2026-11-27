@@ -16,6 +16,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -1233,4 +1234,120 @@ func TestVoyageAIReconcile_Idempotent(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace}, updated))
 	assert.Equal(t, status.PhaseRunning, updated.Status.Phase)
 	assert.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter)
+}
+
+// --- Deployment override tests ---
+
+// stubVoyageAIDeploymentOverride swaps the model server for a CPU-only stub,
+// the way an e2e test without GPU runners would.
+func stubVoyageAIDeploymentOverride() *mdbv1.DeploymentConfiguration {
+	return &mdbv1.DeploymentConfiguration{
+		SpecWrapper: mdbv1.DeploymentSpecWrapper{
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							"custom-pod-label":           "pod",
+							"app.kubernetes.io/instance": "hijacked",
+						},
+					},
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{"pool": "cpu"},
+						Containers: []corev1.Container{{
+							Name:    "voyageai",
+							Image:   "registry.example/voyageai-stub:1",
+							Command: []string{"/stub"},
+							Args:    []string{"--port=8080"},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+								Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+							},
+						}},
+					},
+				},
+			},
+		},
+		MetadataWrapper: mdbv1.DeploymentMetadataWrapper{
+			Labels: map[string]string{
+				"custom-label":               "dep",
+				"app.kubernetes.io/instance": "hijacked",
+			},
+			Annotations: map[string]string{"custom-annotation": "value"},
+		},
+	}
+}
+
+func TestVoyageAI_DeploymentOverride_ReplacesImageEntrypointAndGPU(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Server.Port = 8080
+	vai.Spec.Deployment = stubVoyageAIDeploymentOverride()
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	require.Len(t, dep.Spec.Template.Spec.Containers, 1)
+	container := getVoyageAIContainer(dep)
+
+	assert.Equal(t, "registry.example/voyageai-stub:1", container.Image)
+	assert.Equal(t, []string{"/stub"}, container.Command)
+	assert.Equal(t, []string{"--port=8080"}, container.Args)
+
+	assert.Equal(t, corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}, container.Resources.Requests)
+	assert.Equal(t, corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")}, container.Resources.Limits)
+
+	// Settings the override doesn't touch are preserved.
+	require.NotNil(t, container.StartupProbe)
+	assert.Equal(t, voyageAIStartupPath, container.StartupProbe.HTTPGet.Path)
+	require.NotNil(t, container.SecurityContext)
+	assert.Equal(t, "8080", envMap(container.Env)["SERVER__PORT"].Value)
+	assert.Equal(t, map[string]string{"pool": "cpu"}, dep.Spec.Template.Spec.NodeSelector)
+	assert.Equal(t, appsv1.RecreateDeploymentStrategyType, dep.Spec.Strategy.Type)
+}
+
+func TestVoyageAI_DeploymentOverride_MetadataAndIdentityLabels(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Deployment = stubVoyageAIDeploymentOverride()
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	dep := getVoyageAIDeployment(ctx, t, c, vai)
+	assert.Equal(t, "dep", dep.Labels["custom-label"])
+	assert.Equal(t, "value", dep.Annotations["custom-annotation"])
+	assert.Equal(t, "pod", dep.Spec.Template.Labels["custom-pod-label"])
+
+	// Overrides cannot detach the Deployment from the VoyageAI or its pods from the Service.
+	assert.Equal(t, "vai", dep.Labels["app.kubernetes.io/instance"])
+	assert.Equal(t, "vai", dep.Spec.Template.Labels["app.kubernetes.io/instance"])
+	assert.Equal(t, voyageAIPodLabels(vai), dep.Spec.Selector.MatchLabels)
+	assert.Equal(t, voyageAIPodLabels(vai), getVoyageAIService(ctx, t, c, vai).Spec.Selector)
+}
+
+func TestVoyageAI_DeploymentOverride_RemovalRestoresDefaults(t *testing.T) {
+	ctx := context.Background()
+	vai := newVoyageAI("vai", mock.TestNamespace, vaiv1.VoyageAIModelVoyage4, "1.0.0")
+	vai.Spec.Deployment = stubVoyageAIDeploymentOverride()
+	reconciler, c := newVoyageAIReconcilerForTest(vai)
+
+	_, err := reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	current := &vaiv1.VoyageAI{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: vai.Name, Namespace: vai.Namespace}, current))
+	current.Spec.Deployment = nil
+	require.NoError(t, c.Update(ctx, current))
+
+	_, err = reconcileVoyageAI(ctx, t, reconciler, vai.Name, vai.Namespace)
+	require.NoError(t, err)
+
+	container := getVoyageAIContainer(getVoyageAIDeployment(ctx, t, c, vai))
+	assert.Equal(t, "quay.io/mongodb/voyageai/voyage-4:1.0.0", container.Image)
+	assert.Empty(t, container.Command)
+	assert.Equal(t, resource.MustParse("1"), container.Resources.Requests["nvidia.com/gpu"])
+	assert.Equal(t, resource.MustParse("1"), container.Resources.Limits["nvidia.com/gpu"])
 }

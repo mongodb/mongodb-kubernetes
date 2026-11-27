@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 const (
@@ -48,6 +49,11 @@ const (
 	voyageAIStartupPath   = "/health/startup"
 	voyageAIReadinessPath = "/health/readiness"
 	voyageAILivenessPath  = "/health/liveness"
+
+	voyageAIEmbeddingsPath               = "/v1/embeddings"
+	voyageAIContextualizedEmbeddingsPath = "/v1/contextualizedembeddings"
+	voyageAIMultimodalEmbeddingsPath     = "/v1/multimodalembeddings"
+	voyageAIRerankPath                   = "/v1/rerank"
 
 	// voyageAITLSCertSecretIndex lets the cache find VoyageAI resources that
 	// reference a given Secret, so the map-func can look up dependents in O(1)
@@ -275,6 +281,16 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		// spec authoritative.
 		dep.Spec.Template = corev1.PodTemplateSpec{}
 		deployment.Apply(modifications...)(dep)
+		if vai.Spec.Deployment != nil {
+			dep.Spec = merge.DeploymentSpecs(dep.Spec, vai.Spec.Deployment.SpecWrapper.Spec)
+			dep.Labels = merge.StringToStringMap(dep.Labels, vai.Spec.Deployment.MetadataWrapper.Labels)
+			dep.Annotations = merge.StringToStringMap(dep.Annotations, vai.Spec.Deployment.MetadataWrapper.Annotations)
+			// Identity labels are re-applied after the user overrides so they cannot
+			// detach the Deployment from the VoyageAI or its pods from the Service.
+			dep.Labels = merge.StringToStringMap(dep.Labels, labels)
+			dep.Spec.Template.Labels = merge.StringToStringMap(dep.Spec.Template.Labels, podLabels)
+			deployment.WithMatchLabels(podLabels)(dep)
+		}
 		return controllerutil.SetOwnerReference(vai, dep, r.kubeClient.Scheme())
 	})
 	if err != nil {
@@ -310,10 +326,10 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		{Name: "SERVER__READINESS_PATH", Value: voyageAIReadinessPath},
 		{Name: "SERVER__LIVENESS_PATH", Value: voyageAILivenessPath},
 		{Name: "SERVER__OPENAPI_PATH", Value: "/openapi.json"},
-		{Name: "SERVER__EMBEDDINGS_PATH", Value: "/v1/embeddings"},
-		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: "/v1/contextualizedembeddings"},
-		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: "/v1/multimodalembeddings"},
-		{Name: "SERVER__RERANK_PATH", Value: "/v1/rerank"},
+		{Name: "SERVER__EMBEDDINGS_PATH", Value: voyageAIEmbeddingsPath},
+		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: voyageAIContextualizedEmbeddingsPath},
+		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: voyageAIMultimodalEmbeddingsPath},
+		{Name: "SERVER__RERANK_PATH", Value: voyageAIRerankPath},
 		{Name: "SERVER__TLS__ENABLED", Value: strconv.FormatBool(tlsEnabled)},
 	}
 

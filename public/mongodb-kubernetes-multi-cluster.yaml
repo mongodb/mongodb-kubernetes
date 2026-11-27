@@ -98,6 +98,9 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+      - voyagerouters
+      - voyagerouters/finalizers
+      - voyagerouters/status
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -363,6 +366,7 @@ spec:
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
             - -watch-resource=voyageais
+            - -watch-resource=voyagerouters
             - -watch-resource=mongodbmulticluster
             - -watch-resource=clustermongodbroles
           command:

@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
@@ -31,6 +32,24 @@ const (
 	VoyageAIModelVoyageCode4        VoyageAIModel = "voyage-code-4"
 	VoyageAIModelVoyageMultimodal35 VoyageAIModel = "voyage-multimodal-3.5"
 )
+
+// SupportedVoyageAIModels returns the models accepted by the VoyageAI API.
+func SupportedVoyageAIModels() []VoyageAIModel {
+	return []VoyageAIModel{
+		VoyageAIModelVoyage4Large,
+		VoyageAIModelVoyage4,
+		VoyageAIModelVoyage4Lite,
+		VoyageAIModelRerank25,
+		VoyageAIModelRerank25Lite,
+		VoyageAIModelRerank3,
+		VoyageAIModelRerank3Lite,
+		VoyageAIModelRerank3PubSec,
+		VoyageAIModelVoyageContext4,
+		VoyageAIModelVoyageCode3,
+		VoyageAIModelVoyageCode4,
+		VoyageAIModelVoyageMultimodal35,
+	}
+}
 
 // +k8s:deepcopy-gen=true
 // +kubebuilder:object:root=true
@@ -101,6 +120,10 @@ type VoyageAISpec struct {
 	// NodeAffinity configures node affinity scheduling rules for VoyageAI pods.
 	// +optional
 	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
+
+	// Deployment holds overrides merged into the operator-created Deployment.
+	// +optional
+	Deployment *mdbv1.DeploymentConfiguration `json:"deployment,omitempty"`
 }
 type ServerConfig struct {
 	// Port is the port the VoyageAI server listens on.
