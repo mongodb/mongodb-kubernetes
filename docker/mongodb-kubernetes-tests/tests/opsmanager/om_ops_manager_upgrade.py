@@ -1,3 +1,4 @@
+import os
 from time import sleep
 from typing import Iterator, Optional
 
@@ -362,6 +363,8 @@ class TestMongoDbsVersionUpgrade:
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str):
         # The agents were requested to get upgraded immediately after Ops Manager upgrade.
         # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
+        if os.getenv("MDB_CUSTOM_AGENT_URL"):
+            pytest.skip("a custom agent URL pins the agent version, so the OM upgrade does not change it")
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if is_default_architecture_static():
