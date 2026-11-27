@@ -111,8 +111,8 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		sts := MultiClusterStatefulSet(mdbm, MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions()))
 		agent := construct.AgentContainer(sts)
 		require.NotNil(t, agent)
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})
-		assert.Len(t, sts.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: util.AgentSettingsVolume, MountPath: util.AgentSettingsPath, ReadOnly: true})
+		assert.Len(t, sts.Spec.Template.Annotations[util.AgentSettingsHash], 64)
 	})
 
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {

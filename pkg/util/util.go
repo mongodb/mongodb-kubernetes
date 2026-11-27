@@ -253,3 +253,8 @@ func ParseURL(str string) (*url.URL, error) {
 func IsPOSIXAbsolutePath(p string) bool {
 	return path.IsAbs(p) && !strings.Contains(p, "..")
 }
+
+// ContainsLineBreakOrNUL reports whether s would add an extra line to an agent settings file.
+func ContainsLineBreakOrNUL(s string) bool {
+	return strings.ContainsAny(s, "\r\n\x00")
+}

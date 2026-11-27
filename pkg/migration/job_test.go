@@ -578,12 +578,12 @@ func TestBuildJobFromStatefulSet_ExcludesAgentStartupVolumes(t *testing.T) {
 	sts := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 		Volumes: []corev1.Volume{
 			{Name: util.ClusterFileName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"}}},
-			{Name: construct.AgentSettingsVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-rs-agent-settings"}}}},
+			{Name: util.AgentSettingsVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-rs-agent-settings"}}}},
 			{Name: construct.AgentAPIKeyVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-agent-api-key"}}},
 		},
 		Containers: []corev1.Container{{VolumeMounts: []corev1.VolumeMount{
 			{Name: util.ClusterFileName, MountPath: "/var/run/credentials", ReadOnly: true},
-			{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true},
+			{Name: util.AgentSettingsVolume, MountPath: util.AgentSettingsPath, ReadOnly: true},
 			{Name: construct.AgentAPIKeyVolumeName, MountPath: construct.AgentAPIKeySecretPath},
 		}}},
 	}}}}

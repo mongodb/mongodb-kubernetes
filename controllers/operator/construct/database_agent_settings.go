@@ -196,7 +196,7 @@ func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParame
 			Labels:          maps.Clone(sts.Labels),
 			OwnerReferences: append([]metav1.OwnerReference(nil), sts.OwnerReferences...),
 		},
-		Data: map[string]string{AgentSettingsFileName: content},
+		Data: map[string]string{util.AgentSettingsFileName: content},
 	}, nil
 }
 
@@ -213,16 +213,16 @@ func applyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions
 	if _, ok := opts.AgentSettingsSource().APIKeyOverride(); ok && !vault.IsVaultSecretBackend() {
 		upsertAgentAPIKeyVolume(sts, agent, AgentAPIKeyOverrideSecretName(sts.Name))
 	}
-	podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(AgentSettingsVolume, AgentSettingsConfigMapName(*sts)))(&sts.Spec.Template)
-	container.WithVolumeMounts([]corev1.VolumeMount{statefulset.CreateVolumeMount(AgentSettingsVolume, AgentSettingsPath, statefulset.WithReadOnly(true))})(agent)
+	podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(util.AgentSettingsVolume, AgentSettingsConfigMapName(*sts)))(&sts.Spec.Template)
+	container.WithVolumeMounts([]corev1.VolumeMount{statefulset.CreateVolumeMount(util.AgentSettingsVolume, util.AgentSettingsPath, statefulset.WithReadOnly(true))})(agent)
 	setAgentHostnameEnv(agent, opts)
 	cm, err := DatabaseAgentSettingsConfigMap(*sts, *agent, opts)
 	if err != nil {
 		// DatabaseInKubernetes renders the settings again and reports the error before writing anything.
 		return
 	}
-	digest := sha256.Sum256([]byte(cm.Data[AgentSettingsFileName] + "\x00" + opts.AgentCredentialHash))
-	sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{AgentSettingsHash: fmt.Sprintf("%x", digest)})
+	digest := sha256.Sum256([]byte(cm.Data[util.AgentSettingsFileName] + "\x00" + opts.AgentCredentialHash))
+	sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{util.AgentSettingsHash: fmt.Sprintf("%x", digest)})
 }
 
 // AgentSettingsSource is the agent config and StatefulSet override a StatefulSet's options are built from.

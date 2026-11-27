@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -44,6 +45,10 @@ func validateSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) error {
 	}
 
 	if err := validateStatefulSet(mdb); err != nil {
+		return err
+	}
+
+	if err := validateAgentSettings(mdb); err != nil {
 		return err
 	}
 
@@ -205,5 +210,18 @@ func validateStatefulSet(mdb mdbv1.MongoDBCommunity) error {
 		return fmt.Errorf("spec.statefulset.spec.replicas has to be equal to spec.members")
 	}
 
+	return nil
+}
+
+// validateAgentSettings rejects values that would add extra lines to the agent settings file.
+func validateAgentSettings(mdb mdbv1.MongoDBCommunity) error {
+	for _, field := range []struct{ name, value string }{
+		{"spec.agent.logFile", mdb.Spec.AgentConfiguration.LogFile},
+		{"spec.agent.logLevel", string(mdb.Spec.AgentConfiguration.LogLevel)},
+	} {
+		if util.ContainsLineBreakOrNUL(field.value) {
+			return fmt.Errorf("%s must not contain a line break or NUL byte", field.name)
+		}
+	}
 	return nil
 }

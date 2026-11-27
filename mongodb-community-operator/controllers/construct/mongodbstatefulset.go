@@ -1,9 +1,14 @@
 package construct
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"maps"
 	"os"
+	"path"
+	"slices"
 	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -53,8 +58,6 @@ const (
 
 	automationMongodConfFileName = "automation-mongod.conf"
 	keyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"
-
-	automationAgentOptions = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 
 	MongodbUserCommand = `current_uid=$(id -u)
 declare -r current_uid
@@ -131,7 +134,10 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	keyFileVolumeVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
 	keyFileVolumeVolumeMountMongod := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
 
-	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeVolumeMount, tmpVolumeMount}
+	agentSettingsVolume := statefulset.CreateVolumeFromConfigMap(util.AgentSettingsVolume, AgentSettingsConfigMapName(mdb.GetName()))
+	agentSettingsVolumeMount := statefulset.CreateVolumeMount(agentSettingsVolume.Name, util.AgentSettingsPath, statefulset.WithReadOnly(true))
+
+	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeVolumeMount, tmpVolumeMount, agentSettingsVolumeMount}
 
 	automationConfigVolumeFunc := podtemplatespec.NOOP()
 	if mdb.NeedsAutomationConfigVolume() {
@@ -177,20 +183,8 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	agentLogLevel := v1.LogLevelInfo
-	if mdb.GetAgentLogLevel() != "" {
-		agentLogLevel = mdb.GetAgentLogLevel()
-	}
-
-	agentLogFile := automationconfig.DefaultAgentLogFile
-	if mdb.GetAgentLogFile() != "" {
-		agentLogFile = mdb.GetAgentLogFile()
-	}
-
-	agentMaxLogFileDurationHours := automationconfig.DefaultAgentMaxLogFileDurationHours
-	if mdb.GetAgentMaxLogFileDurationHours() != 0 {
-		agentMaxLogFileDurationHours = mdb.GetAgentMaxLogFileDurationHours()
-	}
+	// The agent reads the settings file only at startup, so a change to it must roll the Pods.
+	agentSettingsHash := fmt.Sprintf("%x", sha256.Sum256([]byte(AgentSettings(mdb))))
 
 	return statefulset.Apply(
 		statefulset.WithName(mdb.GetName()),
@@ -207,14 +201,16 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
+				podtemplatespec.WithAnnotations(map[string]string{util.AgentSettingsHash: agentSettingsHash}),
 				podtemplatespec.WithVolume(healthStatusVolume),
+				podtemplatespec.WithVolume(agentSettingsVolume),
 				automationConfigVolumeFunc,
 				hooksVolumeMod,
 				scriptsVolumeMod,
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
-				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage)),
+				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentImage)),
 				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration(), false)),
 				upgradeInitContainer,
 				readinessInitContainer,
@@ -222,28 +218,57 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 		))
 }
 
-func BaseAgentCommand() string {
-	return "agent/mongodb-agent -healthCheckFilePath=" + agentHealthStatusFilePathValue + " -serveStatusPort=5000"
+// AgentSettingsConfigMapName returns the name of the ConfigMap that holds the agent settings file.
+func AgentSettingsConfigMapName(name string) string {
+	return name + "-agent-settings"
+}
+
+// AgentSettings renders the agent settings file for the given resource.
+func AgentSettings(mdb MongoDBStatefulSetOwner) string {
+	logLevel := v1.LogLevelInfo
+	if mdb.GetAgentLogLevel() != "" {
+		logLevel = mdb.GetAgentLogLevel()
+	}
+
+	logFile := automationconfig.DefaultAgentLogFile
+	if mdb.GetAgentLogFile() != "" {
+		logFile = mdb.GetAgentLogFile()
+	}
+
+	maxLogFileDurationHours := automationconfig.DefaultAgentMaxLogFileDurationHours
+	if mdb.GetAgentMaxLogFileDurationHours() != 0 {
+		maxLogFileDurationHours = mdb.GetAgentMaxLogFileDurationHours()
+	}
+
+	settings := map[string]string{
+		"cluster":              clusterFilePath,
+		"healthCheckFilePath":  agentHealthStatusFilePathValue,
+		"serveStatusPort":      "5000",
+		"skipMongoStart":       "true",
+		"noDaemonize":          "true",
+		"useLocalMongoDbTools": "true",
+		"logLevel":             string(logLevel),
+	}
+	// Not setting logFile makes the agent log to stdout. Setting logFile to /dev/stdout makes the agent fail
+	// opening /dev/stdout-verbose, so an unset logFile keeps DefaultAgentLogFile and only "/dev/stdout" logs to stdout.
+	if logFile != "/dev/stdout" {
+		settings["logFile"] = logFile
+		settings["maxLogFileDurationHrs"] = strconv.Itoa(maxLogFileDurationHours)
+	}
+
+	var content strings.Builder
+	for _, key := range slices.Sorted(maps.Keys(settings)) {
+		content.WriteString(key + "=" + settings[key] + "\n")
+	}
+	return content.String()
 }
 
 // AutomationAgentCommand returns the full command array for the automation agent container.
-func AutomationAgentCommand(withStatic bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
-	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
-	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
-	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
-	// To keep consistent with old behavior not setting the logFile in the config does not log to stdout but keeps
-	// the default logFile as defined by DefaultAgentLogFile. Setting the logFile explictly to "/dev/stdout" will log to stdout.
-	agentLogOptions := ""
-	if logFile == "/dev/stdout" {
-		agentLogOptions += " -logLevel " + string(logLevel)
-	} else {
-		agentLogOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
-	}
-
-	return []string{"/bin/bash", "-c", MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions + agentLogOptions}
+func AutomationAgentCommand() []string {
+	return []string{"/bin/bash", "-c", MongodbUserCommand + "agent/mongodb-agent -f " + path.Join(util.AgentSettingsPath, util.AgentSettingsFileName)}
 }
 
-func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
+func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, agentImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName(AgentName),
@@ -252,7 +277,7 @@ func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []cor
 		container.WithReadinessProbe(DefaultReadiness()),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand(AutomationAgentCommand(false, logLevel, logFile, maxLogFileDurationHours)),
+		container.WithCommand(AutomationAgentCommand()),
 		containerSecurityContext,
 		container.WithEnvs(
 			corev1.EnvVar{

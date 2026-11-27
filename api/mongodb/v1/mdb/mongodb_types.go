@@ -881,7 +881,7 @@ func (s StartupParameters) ToSettingsFile() (string, error) {
 			return "", fmt.Errorf("invalid agent setting name %q", key)
 		}
 		value := s[key]
-		if strings.ContainsAny(value, "\r\n\x00") {
+		if util.ContainsLineBreakOrNUL(value) {
 			return "", fmt.Errorf("agent setting %q contains a line break or NUL byte", key)
 		}
 		if strings.TrimSpace(value) != value {

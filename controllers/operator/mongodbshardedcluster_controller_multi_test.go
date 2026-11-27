@@ -35,7 +35,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
@@ -1313,7 +1312,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 			require.NoError(t, memberClient.List(ctx, sets))
 			hashes[name] = make(map[string]string)
 			for _, sts := range sets.Items {
-				hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+				hash := sts.Spec.Template.Annotations[util.AgentSettingsHash]
 				require.NotEmpty(t, hash)
 				hashes[name][sts.Name] = hash
 			}

@@ -9498,8 +9498,16 @@ spec:
                     type: object
                   logFile:
                     type: string
+                    x-kubernetes-validations:
+                    - message: spec.agent.logFile must not contain a line break or
+                        NUL byte
+                      rule: '!self.matches(''[\r\n\x00]'')'
                   logLevel:
                     type: string
+                    x-kubernetes-validations:
+                    - message: spec.agent.logLevel must not contain a line break or
+                        NUL byte
+                      rule: '!self.matches(''[\r\n\x00]'')'
                   logRotate:
                     description: LogRotate if enabled, will enable LogRotate for all
                       processes.

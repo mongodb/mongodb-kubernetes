@@ -232,8 +232,10 @@ const (
 
 type AgentConfiguration struct {
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="!self.matches('[\\r\\n\\x00]')",message="spec.agent.logLevel must not contain a line break or NUL byte"
 	LogLevel v1.LogLevel `json:"logLevel"`
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="!self.matches('[\\r\\n\\x00]')",message="spec.agent.logFile must not contain a line break or NUL byte"
 	LogFile string `json:"logFile"`
 	// +optional
 	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`

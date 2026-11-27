@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -84,18 +85,53 @@ func TestMongod_Container(t *testing.T) {
 }
 
 func TestMongoDBAgentCommand(t *testing.T) {
-	cmd := AutomationAgentCommand(false, v1.LogLevelInfo, "testfile", 24)
-	baseCmd := MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions
-	assert.Len(t, cmd, 3)
-	assert.Equal(t, cmd[0], "/bin/bash")
-	assert.Equal(t, cmd[1], "-c")
-	assert.Equal(t, cmd[2], baseCmd+" -logFile testfile -logLevel INFO -maxLogFileDurationHrs 24")
+	cmd := AutomationAgentCommand()
+	assert.Equal(t, []string{"/bin/bash", "-c", MongodbUserCommand + "agent/mongodb-agent -f /etc/mongodb-agent/automation-agent.conf"}, cmd)
+}
 
-	cmd = AutomationAgentCommand(false, v1.LogLevelInfo, "/dev/stdout", 24)
-	assert.Len(t, cmd, 3)
-	assert.Equal(t, cmd[0], "/bin/bash")
-	assert.Equal(t, cmd[1], "-c")
-	assert.Equal(t, cmd[2], baseCmd+" -logLevel INFO")
+func TestAgentSettings(t *testing.T) {
+	baseSettings := "cluster=" + clusterFilePath + "\n" +
+		"healthCheckFilePath=" + agentHealthStatusFilePathValue + "\n"
+
+	t.Run("Defaults", func(t *testing.T) {
+		mdb := newTestReplicaSet()
+		assert.Equal(t, baseSettings+
+			"logFile=/var/log/mongodb-mms-automation/automation-agent.log\n"+
+			"logLevel=INFO\n"+
+			"maxLogFileDurationHrs=24\n"+
+			"noDaemonize=true\n"+
+			"serveStatusPort=5000\n"+
+			"skipMongoStart=true\n"+
+			"useLocalMongoDbTools=true\n", AgentSettings(&mdb))
+	})
+
+	t.Run("Custom log file", func(t *testing.T) {
+		mdb := newTestReplicaSet()
+		mdb.Spec.AgentConfiguration = mdbv1.AgentConfiguration{LogLevel: v1.LogLevelDebug, LogFile: "testfile", MaxLogFileDurationHours: 12}
+		assert.Contains(t, AgentSettings(&mdb), "logFile=testfile\nlogLevel=DEBUG\nmaxLogFileDurationHrs=12\n")
+	})
+
+	t.Run("Stdout omits log file options", func(t *testing.T) {
+		mdb := newTestReplicaSet()
+		mdb.Spec.AgentConfiguration = mdbv1.AgentConfiguration{LogFile: "/dev/stdout"}
+		settings := AgentSettings(&mdb)
+		assert.Contains(t, settings, "logLevel=INFO\n")
+		assert.NotContains(t, settings, "logFile=")
+		assert.NotContains(t, settings, "maxLogFileDurationHrs=")
+	})
+}
+
+func TestAgentSettingsChangeRollsPods(t *testing.T) {
+	mdb := newTestReplicaSet()
+	sts := &appsv1.StatefulSet{}
+	BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(sts)
+	before := sts.Spec.Template.Annotations[util.AgentSettingsHash]
+	assert.NotEmpty(t, before)
+
+	mdb.Spec.AgentConfiguration.LogLevel = v1.LogLevelDebug
+	sts = &appsv1.StatefulSet{}
+	BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(sts)
+	assert.NotEqual(t, before, sts.Spec.Template.Annotations[util.AgentSettingsHash])
 }
 
 func assertStatefulSetIsBuiltCorrectly(t *testing.T, mdb mdbv1.MongoDBCommunity, sts *appsv1.StatefulSet) {
@@ -121,7 +157,7 @@ func assertStatefulSetIsBuiltCorrectly(t *testing.T, mdb mdbv1.MongoDBCommunity,
 	probe := agentContainer.ReadinessProbe
 	assert.True(t, reflect.DeepEqual(probes.New(DefaultReadiness()), *probe))
 	assert.Equal(t, probes.New(DefaultReadiness()).FailureThreshold, probe.FailureThreshold)
-	assert.Len(t, agentContainer.VolumeMounts, 7)
+	assert.Len(t, agentContainer.VolumeMounts, 8)
 	assert.NotNil(t, agentContainer.ReadinessProbe)
 	if !managedSecurityContext {
 		assert.NotNil(t, sts.Spec.Template.Spec.Containers[0].SecurityContext)
@@ -131,6 +167,7 @@ func assertStatefulSetIsBuiltCorrectly(t *testing.T, mdb mdbv1.MongoDBCommunity,
 	}
 
 	assertContainsVolumeMountWithName(t, agentContainer.VolumeMounts, "agent-scripts")
+	assertContainsVolumeMountWithName(t, agentContainer.VolumeMounts, "agent-settings")
 	assertContainsVolumeMountWithName(t, agentContainer.VolumeMounts, "automation-config")
 	assertContainsVolumeMountWithName(t, agentContainer.VolumeMounts, "data-volume")
 	assertContainsVolumeMountWithName(t, agentContainer.VolumeMounts, "healthstatus")

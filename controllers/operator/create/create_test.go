@@ -79,9 +79,9 @@ func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 			assert.Equal(t, sts.Spec.UpdateStrategy, created.Spec.UpdateStrategy)
 			cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-settings"))
 			require.NoError(t, err)
-			assert.Contains(t, cm.Data[construct.AgentSettingsFileName], "logLevel=DEBUG\n")
-			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
-			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "overrideLocalHost=")
+			assert.Contains(t, cm.Data[util.AgentSettingsFileName], "logLevel=DEBUG\n")
+			assert.NotContains(t, cm.Data[util.AgentSettingsFileName], "customer-api-key")
+			assert.NotContains(t, cm.Data[util.AgentSettingsFileName], "overrideLocalHost=")
 			keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
 			require.NoError(t, err)
 			assert.Equal(t, "customer-api-key", string(keySecret.Data[util.OmAgentApiKey]))
@@ -95,8 +95,8 @@ func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 			for _, variable := range agent.Env {
 				assert.NotEqual(t, "AGENT_FLAGS", variable.Name)
 			}
-			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})
-			assert.NotEmpty(t, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: util.AgentSettingsVolume, MountPath: util.AgentSettingsPath, ReadOnly: true})
+			assert.NotEmpty(t, created.Spec.Template.Annotations[util.AgentSettingsHash])
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
 			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
@@ -222,7 +222,7 @@ func TestDatabaseAgentCredentialOverrideUsesVault(t *testing.T) {
 	assert.Contains(t, created.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"], secretPath)
 	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name+"-agent-settings"))
 	require.NoError(t, err)
-	assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
+	assert.NotContains(t, cm.Data[util.AgentSettingsFileName], "customer-api-key")
 }
 
 // A member cluster SecretClient carries no Vault client by design. Vault is not supported for
@@ -249,7 +249,7 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 	created, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, options)
 
 	require.NoError(t, err)
-	assert.Len(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+	assert.Len(t, created.Spec.Template.Annotations[util.AgentSettingsHash], 64)
 	assert.Equal(t, keySecret.Name, construct.MountedAgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
 }
 
@@ -275,7 +275,7 @@ func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
 		t.Helper()
 		created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 		require.NoError(t, err)
-		hash := created.Spec.Template.Annotations[construct.AgentSettingsHash]
+		hash := created.Spec.Template.Annotations[util.AgentSettingsHash]
 		assert.Len(t, hash, 64)
 		return hash
 	}
@@ -322,7 +322,7 @@ func TestDatabaseAgentSettingsCredentialSources(t *testing.T) {
 				require.NoError(t, err)
 				cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
 				require.NoError(t, err)
-				assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "unused-raw-key")
+				assert.NotContains(t, cm.Data[util.AgentSettingsFileName], "unused-raw-key")
 			}
 			_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-api-key"))
 			assert.True(t, errors.IsNotFound(err), "do not generate credentials that the agent will not consume")
@@ -465,7 +465,7 @@ func TestDatabaseAgentEmptyBaseURLOverrideKeepsConfiguredMode(t *testing.T) {
 	require.NoError(t, err)
 	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
 	require.NoError(t, err)
-	settings := cm.Data[construct.AgentSettingsFileName]
+	settings := cm.Data[util.AgentSettingsFileName]
 	assert.Contains(t, settings, "mmsBaseUrl=https://ops-manager.example.com\n")
 	assert.NotContains(t, settings, "cluster=")
 	assert.NotContains(t, settings, "serveStatusPort=")
@@ -530,10 +530,10 @@ func TestReconcileDatabaseAgentSettingsMultiCluster(t *testing.T) {
 
 	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, construct.AgentSettingsConfigMapName(sts)))
 	require.NoError(t, err)
-	settings := cm.Data[construct.AgentSettingsFileName]
+	settings := cm.Data[util.AgentSettingsFileName]
 	assert.Contains(t, settings, "ephemeralPortOffset=1\n")
 	assert.NotContains(t, settings, "overrideLocalHost")
-	assert.Len(t, sts.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+	assert.Len(t, sts.Spec.Template.Annotations[util.AgentSettingsHash], 64)
 }
 
 func TestDatabaseAgentSettingsHashTracksVaultCredential(t *testing.T) {
@@ -564,19 +564,19 @@ func TestDatabaseAgentSettingsHashTracksVaultCredential(t *testing.T) {
 	secretClient := secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}
 	created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
-	original := created.Spec.Template.Annotations[construct.AgentSettingsHash]
+	original := created.Spec.Template.Annotations[util.AgentSettingsHash]
 	dataLock.Lock()
 	data["unrelated"] = "not-consumed"
 	dataLock.Unlock()
 	created, err = reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
-	assert.Equal(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+	assert.Equal(t, original, created.Spec.Template.Annotations[util.AgentSettingsHash])
 	dataLock.Lock()
 	data[util.OmAgentApiKey] = "vault-key-two"
 	dataLock.Unlock()
 	created, err = reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
-	assert.NotEqual(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+	assert.NotEqual(t, original, created.Spec.Template.Annotations[util.AgentSettingsHash])
 }
 
 func TestDatabaseAgentSettingsHostname(t *testing.T) {
@@ -758,7 +758,7 @@ func TestDatabaseAgentSettingsHashTracksCustomerKeyVolume(t *testing.T) {
 		t.Helper()
 		created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 		require.NoError(t, err)
-		return created.Spec.Template.Annotations[construct.AgentSettingsHash]
+		return created.Spec.Template.Annotations[util.AgentSettingsHash]
 	}
 	original := apply()
 	keySecret.Data["custom-key"] = []byte("customer-key-two")

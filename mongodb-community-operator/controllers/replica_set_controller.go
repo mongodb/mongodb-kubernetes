@@ -46,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
@@ -342,6 +343,11 @@ func (r *ReplicaSetReconciler) ensurePrometheusTLSResources(ctx context.Context,
 //
 // The returned boolean indicates that the StatefulSet is ready.
 func (r *ReplicaSetReconciler) deployStatefulSet(ctx context.Context, mdb mdbv1.MongoDBCommunity) (bool, error) {
+	r.log.Info("Creating/Updating agent settings ConfigMap")
+	if err := r.ensureAgentSettings(ctx, mdb); err != nil {
+		return false, fmt.Errorf("error creating/updating agent settings ConfigMap: %s", err)
+	}
+
 	r.log.Info("Creating/Updating StatefulSet")
 	if err := r.createOrUpdateStatefulSet(ctx, mdb, false); err != nil {
 		return false, fmt.Errorf("error creating/updating StatefulSet: %s", err)
@@ -495,6 +501,16 @@ func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb
 	}
 
 	return mcoagent.NewReplicaSetPortManager(r.log, mdb.Spec.AdditionalMongodConfig.GetDBPort(), currentPodStates, currentAC.Processes), nil
+}
+
+func (r *ReplicaSetReconciler) ensureAgentSettings(ctx context.Context, mdb mdbv1.MongoDBCommunity) error {
+	cm := configmap.Builder().
+		SetName(construct.AgentSettingsConfigMapName(mdb.Name)).
+		SetNamespace(mdb.Namespace).
+		SetDataField(util.AgentSettingsFileName, construct.AgentSettings(&mdb)).
+		SetOwnerReferences(mdb.GetOwnerReferences()).
+		Build()
+	return configmap.CreateOrUpdate(ctx, r.client, cm)
 }
 
 func (r *ReplicaSetReconciler) createOrUpdateStatefulSet(ctx context.Context, mdb mdbv1.MongoDBCommunity, isArbiter bool) error {

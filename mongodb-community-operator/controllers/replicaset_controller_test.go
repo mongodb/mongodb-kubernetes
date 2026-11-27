@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -167,6 +168,23 @@ func TestKubernetesResources_AreCreated(t *testing.T) {
 	assert.Equal(t, mdb.AutomationConfigSecretName(), s.Name)
 	assert.Contains(t, s.Data, automationconfig.ConfigKey)
 	assert.NotEmpty(t, s.Data[automationconfig.ConfigKey])
+}
+
+func TestAgentSettingsConfigMap_IsCreated(t *testing.T) {
+	ctx := context.Background()
+	mdb := newTestReplicaSet()
+
+	mgr := client.NewManager(ctx, &mdb)
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
+	assertReconciliationSuccessful(t, res, err)
+
+	cm := corev1.ConfigMap{}
+	err = mgr.GetClient().Get(ctx, types.NamespacedName{Name: construct.AgentSettingsConfigMapName(mdb.Name), Namespace: mdb.Namespace}, &cm)
+	assert.NoError(t, err)
+	assert.Equal(t, construct.AgentSettings(&mdb), cm.Data[util.AgentSettingsFileName])
+	assert.Equal(t, mdb.GetOwnerReferences(), cm.OwnerReferences)
 }
 
 func TestStatefulSet_IsCorrectlyConfigured(t *testing.T) {
